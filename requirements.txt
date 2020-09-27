@@ -1,0 +1,5 @@
+hexutil
+numpy
+pyqt5==5.14
+matplotlib
+scipy
