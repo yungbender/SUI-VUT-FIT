@@ -1,5 +1,6 @@
 hexutil
-numpy
+numpy==1.18.5 # Tensorflow 2.2 doesn't work with numpy 1.9+
 pyqt5==5.14
 matplotlib
 scipy
+tensorflow==2.2.1

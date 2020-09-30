@@ -1,0 +1,1 @@
+from .xfrejl00 import AlphaDice as AI
