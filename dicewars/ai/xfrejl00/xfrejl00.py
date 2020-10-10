@@ -1,5 +1,6 @@
 import logging
 from datetime import datetime
+from configparser import ConfigParser
 
 from dicewars.client.ai_driver import BattleCommand, EndTurnCommand
 from dicewars.ai.utils import save_state
@@ -7,6 +8,11 @@ from dicewars.ai.utils import save_state
 
 class AlphaDice:
     def __init__(self, player_name, board, players_order, update_qtable=False):
+        config = ConfigParser()
+        config.read('dicewars/ai/xfrejl00/config.ini')
+
+        self.train = config.getboolean('BASE', 'Train')
+        self.snapshot_path = config['BASE']['SnapshotPath']
         self.player_name = player_name
         self.players_order = players_order
         self.update_qtable = update_qtable

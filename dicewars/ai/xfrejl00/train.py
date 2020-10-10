@@ -6,6 +6,7 @@ import sys
 import subprocess
 import re
 from datetime import datetime
+from configparser import ConfigParser
 
 class TrainExc(Exception):
     pass
@@ -63,6 +64,14 @@ def load_model(snapshot_path):
     return snapshot_path
 
 
+def setup_snapshot_path(path):
+    config = ConfigParser()
+    config.read("dicewars/ai/xfrejl00/config.ini")
+    config.set("BASE", "SnapshotPath", path)
+    with open("dicewars/ai/xfrejl00/config.ini", "w") as configfile:
+        config.write(configfile)
+
+
 def train(matches_count=1000, 
         snapshot_frequency=100, 
         graphs_frequency=100, 
@@ -91,6 +100,8 @@ def main():
     path = None
     if args.load_model:
         path = load_model(args.dest_folder)
+    setup_snapshot_path(path)
+
     train(**vars(args), snapshot_path=path)
 
 if __name__ == "__main__":
