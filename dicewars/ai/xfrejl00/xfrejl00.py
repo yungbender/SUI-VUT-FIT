@@ -1,5 +1,6 @@
 import logging
 import random
+import pickle
 from datetime import datetime
 from configparser import ConfigParser
 
@@ -9,24 +10,34 @@ from dicewars.ai.xfrejl00.qtable import QTable
 from dicewars.ai.xfrejl00.utils import *
 
 class AlphaDice:
-    def __init__(self, player_name, board, players_order, update_qtable=False):
+    def __init__(self, player_name, board, players_order):
         self.player_name = player_name
         self.players_order = players_order
-        self.update_qtable = update_qtable
 
         config = ConfigParser()
         config.read('dicewars/ai/xfrejl00/config.ini')
-        self.train = config.getboolean('BASE', 'Train')
-        self.snapshot_path = config['BASE']['SnapshotPath'] + "snapshot.pickle"
-        self.epsilon = float(config['BASE']['Epsilon'])
-        self.learning_rate = float(config['BASE']['LearningRate']) 
-        self.discount = float(config['BASE']['Discount'])
-
+        self.update_qtable = config.getboolean('BASE', 'Train')
+        self.snapshot_path = config['BASE']['SnapshotPath']
+        self.moves_path = config['BASE']['SnapshotPath']  + "moves.pickle"
+        self.learning_rate, self.epsilon, self.discount = load_parameters(self.snapshot_path)
+        
         self.logger = logging.getLogger('AI')
         self.logger.info("Current time: " + datetime.now().strftime('%Y.%m.%d %H:%M:%S'))
 
         self.q_table = QTable(states_count=3, action_count=1, qvalue_check=True)
-        self.q_table.load(self.snapshot_path)
+
+        if self.update_qtable:
+            with open(self.moves_path , "wb") as f: # Create the empty file for saved moves
+                pickle.dump([], f)
+        
+    def save_move_to_file(self, key):
+        move_list = []
+        with open(self.moves_path, 'rb') as f: # Load file
+            move_list = pickle.load(f)
+        
+        move_list.append(key) # Add the current move
+        with open(self.moves_path, 'wb') as f: # Save file
+            pickle.dump(move_list, f)
 
     def get_qtable_key(self, board, source, target, action):
         """ State definition:
@@ -46,18 +57,19 @@ class AlphaDice:
         return ((success_probability, hold_probability, region_gain), (action, ))
 
     def ai_turn(self, board, nb_moves_this_turn, nb_turns_this_game, time_left):
-        #with open("xfrejl00.save", "wb") as f:
-        #    save_state(f, board, self.player_name, self.players_order)
-
+        with open("xfrejl00.save", "wb") as f:
+            save_state(f, board, self.player_name, self.players_order)
         attacks = list(possible_attacks(board, self.player_name))
         if not attacks: # No possible moves
             return EndTurnCommand()
 
-        attack_source = None
-        attack_target = None
-        action = None
-        if random.uniform(0, 1) > self.epsilon: # Select action based on Q-table
-            qvalue_max = 0
+        turn_source = None
+        turn_target = None
+        turn_key = None # Full Q-table entry for played move, so we can update its value after game
+        turn_action = None
+        self.q_table = self.q_table.load(self.snapshot_path + "snapshot.pickle")
+        if random.uniform(0, 1) > self.epsilon or self.update_qtable == False: # Select action based on Q-table, don't play random when not training
+            qvalue_max = float('-inf') # Default value is infinity because we want to always take the first possible move, no matter the Q-value
             for source, target in attacks:
                 #print("\nPlayer dice: " + str(source.get_dice()) + ", area name: " + str(source.get_name()))
                 #print("Enemy dice: " + str(target.get_dice()) + ", area name: " + str(target.get_name()))
@@ -67,18 +79,27 @@ class AlphaDice:
                 for action in ["attack", "defend"]:
                     key = self.get_qtable_key(board, source, target, action)
                     if key in self.q_table:
-                        if self.q_table[key] >= qvalue_max:
-                            [attack_source, attack_target] = [source, target]
+                        if self.q_table[key] > qvalue_max:
+                            qvalue_max = self.q_table[key]
+                            [turn_source, turn_target] = [source, target]
+                            turn_key = key
+                            turn_action = action
         else: # Select a random action
-            attack_source, attack_target = random.choice(attacks)
+            turn_source, turn_target = random.choice(attacks)
+            turn_action = random.choice(["attack", "defend"])
 
-            key = self.get_qtable_key(board, attack_source, attack_target, action)
-            if key not in self.q_table:
-                self.q_table[key] = 0
+            if self.update_qtable:
+                turn_key = self.get_qtable_key(board, turn_source, turn_target, turn_action)
+                if turn_key not in self.q_table:
+                    self.q_table[turn_key] = 0
 
-        if attack_source is None or attack_target is None or action == "defend":
+        if self.update_qtable:
+            #TODO: Update Q-table based on Bellman equation with immediate rewards (if self.update_qtable == True)
+            self.q_table.save(self.snapshot_path + "snapshot.pickle")
+            if turn_key is not None: # Only save the moves we were attacking in
+                self.save_move_to_file(turn_key)
+
+        if turn_source is None or turn_target is None or turn_action == "defend":
             return EndTurnCommand()
         else:
-            #TODO: Save the chosen move so rewards received at the end of the game can be added too (if self.update_qtable == True)
-            #TODO: Update Q-table based on Bellman equation with immediate rewards (if self.update_qtable == True)
-            return BattleCommand(attack_source.get_name(), attack_target.get_name())
+            return BattleCommand(turn_source.get_name(), turn_target.get_name())
