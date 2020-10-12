@@ -290,6 +290,11 @@ class Game:
         nickname = self.players[player].get_nickname()
         self.summary.add_elimination(nickname, self.summary.nb_battles)
         self.logger.info("Eliminated player {} ({})".format(player, nickname))
+        
+        if nickname == "xfrejl00 (AI)": # End the game if we lost, so we don't simulate the rest of the game
+            sys.stdout.write("Someone won, but definitely not A-team's AlphaDice")
+            exit(0)
+        
         self.nb_players_alive -= 1
 
     def check_win_condition(self):

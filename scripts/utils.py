@@ -114,6 +114,10 @@ def run_ai_only_game(
         log.close()
 
     server_output.seek(0)
+    if server_output.read() == "Someone won, but definitely not A-team's AlphaDice":
+        sys.stdout.write("Someone won, but definitely not A-team's AlphaDice")
+        exit(0)
+    server_output.seek(0)
     game_summary = GameSummary.from_repr(server_output.read())
     return game_summary
 
