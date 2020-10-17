@@ -117,7 +117,8 @@ def train(matches_count=5000,
         learning_rate_decay=0.999, # Subject to change
         min_learning_rate=0.3, # Subject to change
         min_epsilon=0.1, # Subject to change
-        load_model=False):
+        load_model=False,
+        **kwargs):
 
     setup_config(snapshot_path)
     print("Snapshot path: " + snapshot_path)
@@ -139,11 +140,11 @@ def train(matches_count=5000,
         game_output = subprocess.check_output(['python3', 'scripts/dicewars-ai-only.py', "--ai", opponents[0], opponents[1], opponents[2], opponents[3], "-d", "-l", "dicewars/logs"])
         won_game = bool(re.match(".*xfrejl00.*", game_output.decode("utf-8"))) # True - trained AI won, False - trained AI lost
         played_moves = load_moves_from_game(snapshot_path)
-
+        
         # Calculate the reward
         reward = 0
         if won_game:
-            reward += 10 * (2 + 100 / len(played_moves)) # Motivation to win ASAP
+            reward += 10 * (2 + 200 / len(played_moves)) # Motivation to win ASAP
         else:
             reward -= 5
 
@@ -165,7 +166,7 @@ def train(matches_count=5000,
         # Save the Q-table and training config
         q_table.save(snapshot_path + "snapshot.pickle")
         save_parameters(snapshot_path, learning_rate, epsilon, discount)
-
+    
         progress_bar.update(i+1)
     """
     TODO: Gather relevant data
