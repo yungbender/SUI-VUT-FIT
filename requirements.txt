@@ -4,3 +4,4 @@ pyqt5==5.14
 matplotlib
 scipy
 tensorflow==2.2.1
+pandas==1.1.3

@@ -1,4 +1,5 @@
 import tensorflow as tf
+import matplotlib.pyplot as plt
 import numpy as np
 import argparse
 import gc
@@ -8,6 +9,7 @@ import subprocess
 import re
 import random
 import pickle
+import pandas as pd
 from datetime import datetime
 from configparser import ConfigParser
 from dicewars.ai.xfrejl00.qtable import QTable
@@ -24,8 +26,7 @@ def parse_args():
     parser.add_argument("--load_model", dest="load_model", action="store_true", default=False, help="Load weights and continue training.")
     parser.add_argument("--snapshot_path", dest="dest_folder", action="store", help="Choose from which folder the snapshot will be loaded. Defaults to the folder belonging the to latest training of model.")
     parser.add_argument("--matches_count", dest="matches_count", action="store", type=int, help="Number of matches the model will be trained for.")
-    parser.add_argument("--snapshot_frequency", dest="snapshot_frequency", action="store", type=int, help="How many matches will be played before the model weights are saved.")
-    parser.add_argument("--graphs_frequency", dest="graphs_frequency", action="store", type=int, help="How many matches will be played before the training graphs are saved.")
+    parser.add_argument("--save_frequency", dest="save_frequency", action="store", type=int, help="How many matches will be played before the training graphs and match data are saved.")
     parser.add_argument("--lr", dest="learning_rate", action="store", type=float, help="Learning rate, used in Bellman equation to define how quickly the model should be trained.")
     parser.add_argument("--discount", dest="discount", action="store", type=float, help="Also known as \"gamma\", used in Bellman equation to balance current and future rewards.")
     parser.add_argument("--epsilon", dest="epsilon", action="store", type=float, help="Chance to perform random move instead of greedy move based on Q-table value.")
@@ -80,6 +81,7 @@ def setup_config(path):
     config = ConfigParser()
     config.read("dicewars/ai/xfrejl00/config.ini")
     config.set("BASE", "SnapshotPath", path)
+    config.set("BASE", "Train", "True")
     with open("dicewars/ai/xfrejl00/config.ini", "w") as configfile:
         config.write(configfile)
 
@@ -89,15 +91,30 @@ def decay_lr_epsilon(lr, epsilon, lr_decay, epsilon_decay, min_lr, min_epsilon):
     epsilon = epsilon * epsilon_decay
     return [max(lr, min_lr), max(epsilon, min_epsilon)]
 
-def train(matches_count=10, 
-        snapshot_frequency=100, 
-        graphs_frequency=100, 
+
+def create_winrate_graphs(snapshot_path, df):
+    # Calculate rolling average of winrate and save the stats to CSV file
+    df["rolling_avg"] = df.iloc[:,0].rolling(window=200).mean()
+    df.to_csv(snapshot_path + "winrate_all.csv", index=True)
+
+    # Create graph
+    plt.figure(figsize=[15,10])
+    plt.grid(True)
+    plt.plot(df["rolling_avg"], label="Win rate")
+    plt.xlabel("Games played")
+    plt.ylabel("Win rate")
+    plt.legend(loc=2)
+    plt.savefig(snapshot_path + "winrate_all.png")
+    plt.close()
+
+def train(matches_count=5000, 
+        save_frequency=50, 
         snapshot_path=None,
         learning_rate=0.85, # Subject to change, will also decay during training
         epsilon=0.9, # Subject to change, will also decay during training
-        discount=0.99, # Subject to change
-        epsilon_decay=0.9997, # Subject to change
-        learning_rate_decay=0.9998, # Subject to change
+        discount=0.1, # Subject to change
+        epsilon_decay=0.999, # Subject to change
+        learning_rate_decay=0.999, # Subject to change
         min_learning_rate=0.3, # Subject to change
         min_epsilon=0.1, # Subject to change
         load_model=False):
@@ -107,26 +124,35 @@ def train(matches_count=10,
 
     if load_model: # Load decayed parameters if continuing the run
         learning_rate, epsilon, discount = load_parameters(snapshot_path)
-    else: # Save the config if the run is starting for the first time
+        df = pd.read_csv(snapshot_path + "winrate_all.csv", index_col=0)
+    else: # Save the config and create csv file for stats if the run is starting for the first time
         save_parameters(snapshot_path, learning_rate, epsilon, discount)
-    
+        df = pd.DataFrame(columns=["win", "rolling_avg"], dtype=int)
+
     progress_bar = tf.keras.utils.Progbar(target=matches_count)
     q_table = QTable(states_count=3, action_count=1, qvalue_check=True)
     for i in range(matches_count):
-        opponents = random.sample(ai_list, 3) # Get 3 random opponents from list
-        progress_bar.update(i+1)
+        opponents = random.sample(ai_list , 3) + ["xfrejl00"] # Get 3 random opponents from list and add our AI
+        random.shuffle(opponents) # Shuffle the list
 
         # Run and analyze the game
-        game_output = subprocess.check_output(['python3', 'scripts/dicewars-ai-only.py', "--ai", "xfrejl00", opponents[0], opponents[1], opponents[2], "-d", "-l", "dicewars/logs"])
+        game_output = subprocess.check_output(['python3', 'scripts/dicewars-ai-only.py', "--ai", opponents[0], opponents[1], opponents[2], opponents[3], "-d", "-l", "dicewars/logs"])
         won_game = bool(re.match(".*xfrejl00.*", game_output.decode("utf-8"))) # True - trained AI won, False - trained AI lost
         played_moves = load_moves_from_game(snapshot_path)
 
         # Calculate the reward
         reward = 0
         if won_game:
-            reward += 10 * (100/len(played_moves)) # Motivation to win ASAP
+            reward += 10 * (2 + 100 / len(played_moves)) # Motivation to win ASAP
         else:
             reward -= 5
+
+        # Add the game info to pandas dataframe
+        df = df.append({"win" : won_game}, ignore_index=True)
+
+        # Create and save winrate graphs
+        if i > 0 and i % save_frequency == 0:
+            create_winrate_graphs(snapshot_path, df)
 
         q_table = q_table.load(snapshot_path + "snapshot.pickle")
         for move in played_moves: # Give reward to all played moves in last game
@@ -139,9 +165,10 @@ def train(matches_count=10,
         # Save the Q-table and training config
         q_table.save(snapshot_path + "snapshot.pickle")
         save_parameters(snapshot_path, learning_rate, epsilon, discount)
+
+        progress_bar.update(i+1)
     """
     TODO: Gather relevant data
-        - Moving average of winrate against all anemies
         - Moving averate of winrate against AI that our AI was not trained on (for validation purposes)
     """
 
