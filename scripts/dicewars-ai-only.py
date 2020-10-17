@@ -49,7 +49,7 @@ def main():
     if len(args.ai) < 2 or len(args.ai) > 8:
         print("Unsupported number of AIs")
         exit(1)
-
+    game_summary = None
     summaries = []
     for i in range(args.nb_games):
         if args.report:
@@ -73,9 +73,13 @@ def main():
         except AttributeError:
             for p in procs:
                 p.kill()
+    if isinstance(game_summary, str):
+        print(game_summary, end="")
+        exit(0)
+
     if args.report:
         sys.stdout.write('\r')
-
+        
     win_numbers = get_win_rates(summaries, len(args.ai))
     sys.stdout.write("Win counts {}\n".format(win_numbers))
 

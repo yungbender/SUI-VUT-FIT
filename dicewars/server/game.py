@@ -50,6 +50,7 @@ class Game:
 
         self.board = board
         self.initialize_players()
+        self.placement = []
 
         self.connect_clients()
         if nicknames_order is not None:
@@ -292,8 +293,11 @@ class Game:
         self.logger.info("Eliminated player {} ({})".format(player, nickname))
         
         if nickname == "xfrejl00 (AI)": # End the game if we lost, so we don't simulate the rest of the game
-            sys.stdout.write("Someone won, but definitely not A-team's AlphaDice")
+            self.placement.append("xfrejl00")
+            print(','.join(self.placement))
             exit(0)
+        else:
+            self.placement.append(nickname)
         
         self.nb_players_alive -= 1
 

@@ -4,6 +4,7 @@ from subprocess import Popen
 import tempfile
 import numpy as np
 import random
+import re
 
 from dicewars.server.summary import GameSummary
 
@@ -52,9 +53,8 @@ def get_nickname(ai_spec):
         nick = '{} (AI)'.format(ai_spec)
     else:
         nick = 'Human'
-
+    
     return nick
-
 
 def log_file_producer(logdir, process):
     if logdir is None:
@@ -114,9 +114,9 @@ def run_ai_only_game(
         log.close()
 
     server_output.seek(0)
-    if server_output.read() == "Someone won, but definitely not A-team's AlphaDice":
-        sys.stdout.write("Someone won, but definitely not A-team's AlphaDice")
-        exit(0)
+    return server_output.read().rstrip('\n')
+
+    # Obsolete
     server_output.seek(0)
     game_summary = GameSummary.from_repr(server_output.read())
     return game_summary

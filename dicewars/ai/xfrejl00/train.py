@@ -138,21 +138,24 @@ def train(matches_count=5000,
 
         # Run and analyze the game
         game_output = subprocess.check_output(['python3', 'scripts/dicewars-ai-only.py', "--ai", opponents[0], opponents[1], opponents[2], opponents[3], "-d", "-l", "dicewars/logs"])
-        won_game = bool(re.match(".*xfrejl00.*", game_output.decode("utf-8"))) # True - trained AI won, False - trained AI lost
+        won_game = bool(re.match(".*Winner: xfrejl00.*", game_output.decode("utf-8"))) # True - trained AI won, False - trained AI lost
         played_moves = load_moves_from_game(snapshot_path)
-        
+
         # Calculate the reward
         reward = 0
         if won_game:
             reward += 10 * (2 + 200 / len(played_moves)) # Motivation to win ASAP
         else:
-            reward -= 5
+            placement = 4 - game_output.decode("utf-8").split(",").index("xfrejl00")
+
+            reward += 10 - (5 * placement) # 2nd place = 0 reward, 3rd place = -5 reward, 4th place = -10 reward
 
         # Add the game info to pandas dataframe
         df = df.append({"win" : won_game}, ignore_index=True)
 
-        # Create and save winrate graphs
+        # Create and save winrate graphs, snapshot backup 
         if i > 0 and i % save_frequency == 0:
+            q_table.save(snapshot_path + "snapshot_backup.pickle")
             create_winrate_graphs(snapshot_path, df)
 
         q_table = q_table.load(snapshot_path + "snapshot.pickle")
