@@ -1,4 +1,4 @@
-import tensorflow as tf
+from tensorflow.keras.utils import Progbar
 import matplotlib.pyplot as plt
 import numpy as np
 import argparse
@@ -40,20 +40,20 @@ def parse_args():
 
 def environment_setup():
     gc.enable()
-    tf.keras.backend.clear_session()
+    #tf.keras.backend.clear_session()
 
 
 def fetch_machine():
     # Print relevant info about machine
     print("Using computer: " + os.uname()[1])
     print("Current time: " + datetime.now().strftime('%Y.%m.%d %H:%M:%S'))
-    print("Tensorflow version: " + tf.__version__)
-    freeGpu = subprocess.check_output('nvidia-smi -q | grep "Minor\|Processes" | grep "None" -B1 | tr -d " " | cut -d ":" -f2 | sed -n "1p"', shell=True)
-    if len(freeGpu) == 0:
-        print('WARNING: No usable GPU available!')
-    else:
-        os.environ['CUDA_VISIBLE_DEVICES'] = freeGpu.decode().strip()
-        print("Found GPU: " + str(freeGpu))
+    #print("Tensorflow version: " + tf.__version__)
+    #freeGpu = subprocess.check_output('nvidia-smi -q | grep "Minor\|Processes" | grep "None" -B1 | tr -d " " | cut -d ":" -f2 | sed -n "1p"', shell=True)
+    #if len(freeGpu) == 0:
+    #    print('WARNING: No usable GPU available!')
+    #else:
+    #    os.environ['CUDA_VISIBLE_DEVICES'] = freeGpu.decode().strip()
+    #    print("Found GPU: " + str(freeGpu))
 
 
 def load_model(snapshot_path):
@@ -112,7 +112,7 @@ def train(matches_count=5000,
         snapshot_path=None,
         learning_rate=0.85, # Subject to change, will also decay during training
         epsilon=0.9, # Subject to change, will also decay during training
-        discount=0.1, # Subject to change
+        discount=0.99, # Subject to change
         epsilon_decay=0.999, # Subject to change
         learning_rate_decay=0.999, # Subject to change
         min_learning_rate=0.3, # Subject to change
@@ -130,47 +130,54 @@ def train(matches_count=5000,
         save_parameters(snapshot_path, learning_rate, epsilon, discount)
         df = pd.DataFrame(columns=["win", "rolling_avg"], dtype=int)
 
-    progress_bar = tf.keras.utils.Progbar(target=matches_count)
+    progress_bar = Progbar(target=matches_count)
     q_table = QTable(states_count=3, action_count=1, qvalue_check=True)
-    for i in range(matches_count):
+    for i in range(0, matches_count, 4):
         opponents = random.sample(ai_list , 3) + ["xfrejl00"] # Get 3 random opponents from list and add our AI
         random.shuffle(opponents) # Shuffle the list
+        for j in range(4):
+            # Run and analyze the game
+            game_output = subprocess.check_output(['python3', 'scripts/dicewars-ai-only.py', "--ai", opponents[0], opponents[1], opponents[2], opponents[3], "-d", "-l", "dicewars/logs"])
+            opponents = np.roll(opponents, 1) # Rotate the opponents list
+            won_game = bool(re.match(".*Winner: xfrejl00.*", game_output.decode("utf-8"))) # True - trained AI won, False - trained AI lost
+            played_moves = load_moves_from_game(snapshot_path)
+            with open("dicewars/logs/client-xfrejl00.log", "r") as f:
+                if re.match(".*Traceback.*", f.read()):
+                    print("Error: AI crashed during game.")
+                    exit(-1)
 
-        # Run and analyze the game
-        game_output = subprocess.check_output(['python3', 'scripts/dicewars-ai-only.py', "--ai", opponents[0], opponents[1], opponents[2], opponents[3], "-d", "-l", "dicewars/logs"])
-        won_game = bool(re.match(".*Winner: xfrejl00.*", game_output.decode("utf-8"))) # True - trained AI won, False - trained AI lost
-        played_moves = load_moves_from_game(snapshot_path)
+            # Calculate the reward
+            reward = 0
+            if won_game:
+                reward += 10 * (2 + 200 / len(played_moves)) # Motivation to win ASAP
+            else:
+                placement = 4 - game_output.decode("utf-8").split(",").index("xfrejl00")
 
-        # Calculate the reward
-        reward = 0
-        if won_game:
-            reward += 10 * (2 + 200 / len(played_moves)) # Motivation to win ASAP
-        else:
-            placement = 4 - game_output.decode("utf-8").split(",").index("xfrejl00")
+                reward += 10 - (5 * placement) # 2nd place = 0 reward, 3rd place = -5 reward, 4th place = -10 reward
 
-            reward += 10 - (5 * placement) # 2nd place = 0 reward, 3rd place = -5 reward, 4th place = -10 reward
+            # Add the game info to pandas dataframe
+            df = df.append({"win" : won_game}, ignore_index=True)
 
-        # Add the game info to pandas dataframe
-        df = df.append({"win" : won_game}, ignore_index=True)
+            # Create and save winrate graphs, snapshot backup
 
-        # Create and save winrate graphs, snapshot backup 
-        if i > 0 and i % save_frequency == 0:
-            q_table.save(snapshot_path + "snapshot_backup.pickle")
-            create_winrate_graphs(snapshot_path, df)
+            if i > 0 and (i + j) % save_frequency == 0:
+                q_table.save(snapshot_path + "snapshot_backup.pickle")
+                create_winrate_graphs(snapshot_path, df)
 
-        q_table = q_table.load(snapshot_path + "snapshot.pickle")
-        for move in played_moves: # Give reward to all played moves in last game
-            # Bellman equation (for non-immediate rewards)
-            q_table[move] = q_table[move] + learning_rate * reward
+            q_table = q_table.load(snapshot_path + "snapshot.pickle")
+            for move in played_moves: # Give reward to all played moves in last game
+                # Bellman equation (for non-immediate rewards)
+                q_table[move] = q_table[move] * discount + learning_rate * reward
+                q_table = give_reward_to_better_turns(q_table, reward, move)
 
-        # Decay learning rate and epsilon
-        learning_rate, epsilon = decay_lr_epsilon(learning_rate, epsilon, learning_rate_decay, epsilon_decay, min_learning_rate, min_epsilon)
+            # Decay learning rate and epsilon
+            learning_rate, epsilon = decay_lr_epsilon(learning_rate, epsilon, learning_rate_decay, epsilon_decay, min_learning_rate, min_epsilon)
 
-        # Save the Q-table and training config
-        q_table.save(snapshot_path + "snapshot.pickle")
-        save_parameters(snapshot_path, learning_rate, epsilon, discount)
-    
-        progress_bar.update(i+1)
+            # Save the Q-table and training config
+            q_table.save(snapshot_path + "snapshot.pickle")
+            save_parameters(snapshot_path, learning_rate, epsilon, discount)
+
+            progress_bar.update(i+j+1)
     """
     TODO: Gather relevant data
         - Moving averate of winrate against AI that our AI was not trained on (for validation purposes)

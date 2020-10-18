@@ -70,5 +70,16 @@ def give_new_dice(board, players):
             if not player_areas: # If there's nowhere to give, break (we don't need to add dice to backup dice count)
                 break
 
-
-
+def give_reward_to_better_turns(q_table, reward, key): # Noticed that turns with same risks but better payoffs get neglected during training because they are not played often
+    if key[1][0] == "attack" and reward != 0:
+        initial_value = key[0][2] # Potential field gain
+        reward_multiplier = abs(reward * 0.01)
+        for i in range(initial_value+1, 16): # 16 should be potential maximal region gain
+            key_list = [list(x) for x in key] # Convert tuple of tuples to list of lists so we can edit it
+            key_list[0][2] = i
+            key = tuple([tuple(x) for x in key_list]) # Revert
+            
+            if key in q_table:
+                q_table[key] = q_table[key] + reward + reward_multiplier # Reward multiplier, working for both positive and negative rewards
+                reward_multiplier *= 1.01 
+    return q_table
