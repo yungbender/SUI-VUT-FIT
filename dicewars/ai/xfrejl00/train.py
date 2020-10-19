@@ -1,4 +1,3 @@
-from tensorflow.keras.utils import Progbar
 import matplotlib.pyplot as plt
 import numpy as np
 import argparse
@@ -10,6 +9,7 @@ import re
 import random
 import pickle
 import pandas as pd
+from tqdm import tqdm
 from datetime import datetime
 from configparser import ConfigParser
 from dicewars.ai.xfrejl00.qtable import QTable
@@ -112,11 +112,11 @@ def train(matches_count=5000,
         snapshot_path=None,
         learning_rate=0.85, # Subject to change, will also decay during training
         epsilon=0.9, # Subject to change, will also decay during training
-        discount=0.99, # Subject to change
+        discount=0.999, # Subject to change
         epsilon_decay=0.999, # Subject to change
         learning_rate_decay=0.999, # Subject to change
         min_learning_rate=0.3, # Subject to change
-        min_epsilon=0.1, # Subject to change
+        min_epsilon=0.01, # Subject to change
         load_model=False,
         **kwargs):
 
@@ -130,7 +130,8 @@ def train(matches_count=5000,
         save_parameters(snapshot_path, learning_rate, epsilon, discount)
         df = pd.DataFrame(columns=["win", "rolling_avg"], dtype=int)
 
-    progress_bar = Progbar(target=matches_count)
+    progress_bar = tqdm(total=matches_count)
+
     q_table = QTable(states_count=3, action_count=1, qvalue_check=True)
     for i in range(0, matches_count, 4):
         opponents = random.sample(ai_list , 3) + ["xfrejl00"] # Get 3 random opponents from list and add our AI
@@ -159,7 +160,6 @@ def train(matches_count=5000,
             df = df.append({"win" : won_game}, ignore_index=True)
 
             # Create and save winrate graphs, snapshot backup
-
             if i > 0 and (i + j) % save_frequency == 0:
                 q_table.save(snapshot_path + "snapshot_backup.pickle")
                 create_winrate_graphs(snapshot_path, df)
@@ -177,7 +177,7 @@ def train(matches_count=5000,
             q_table.save(snapshot_path + "snapshot.pickle")
             save_parameters(snapshot_path, learning_rate, epsilon, discount)
 
-            progress_bar.update(i+j+1)
+            progress_bar.update(1)
     """
     TODO: Gather relevant data
         - Moving averate of winrate against AI that our AI was not trained on (for validation purposes)
@@ -193,6 +193,9 @@ def main():
     else: # New snapshot
         if args.dest_folder: # New snapshot with selected name
             path = "dicewars/ai/xfrejl00/snapshots/" + args.dest_folder + "/"
+            if os.path.exists(path):
+                print("Error: Snapshot with this name already exists. Delete it, change snapshot name or start again with --load_model.")
+                exit(-1)
         else: # New snapshot with default name
             path = "dicewars/ai/xfrejl00/snapshots/" + datetime.now().strftime('%Y.%m.%d %H:%M:%S') + "/"
         os.makedirs(path)

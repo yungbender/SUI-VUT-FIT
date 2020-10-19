@@ -55,7 +55,7 @@ class AlphaDice:
         # Transform the probability into class probability (very low, low, medium, high, very high)
         success_probability = convert_probability_to_classes(success_probability)
         hold_probability = convert_probability_to_classes(hold_probability)
-
+ 
         return ((success_probability, hold_probability, region_gain), (action, ))
 
     def get_qtable_best_move(self, board, attacks):
@@ -140,7 +140,6 @@ class AlphaDice:
                 new_board = simulate_attack(new_board, BattleCommand(turn_source.get_name(), turn_target.get_name()))
             new_board, new_dice = self.simulate_game(new_board)
             new_attacks = list(possible_attacks(new_board, self.player_name))
-            #new_region_size = len(max(new_board.get_players_regions(self.player_name), key=len))
             new_area_size = len(new_board.get_player_areas(self.player_name))
             best_move = self.get_qtable_best_move(new_board, new_attacks)[2]
             if best_move:
@@ -153,12 +152,17 @@ class AlphaDice:
             region_size = len(max(board.get_players_regions(self.player_name), key=len))
             #print("Region: " + str(region_size) + " -> " + str(new_dice))
             #print("Area: " + str(area_count) + " -> " + str(new_area_size))
-            reward = (new_dice - region_size) * 0.5 # We compare dice count at round end to current biggest region size
+            reward = (new_dice - region_size) * 0.25 # We compare dice count at round end to current biggest region size
             reward += (new_area_size - area_count) * 0.05 # Region size is more important
             if turn_key[0][0] == "very low" and turn_key[1][0] == "attack" and reward < 0: # Punishment for very risky move
                 reward -= 2
             elif turn_key[0][0] == "low" and turn_key[1][0] == "attack" and reward < 0: # Punishment for risky move
                 reward -= 1
+
+            # TODO: Motivate AI to defend
+            # TODO: Make the AI not go on suicide missions
+            # TODO: Think about moving potential field gain to reward instead (or add all states with brute force)
+            #   - Make enemy neighbor count a new state instead?
 
             # Bellman equation for new Q-table value calculation
             #print("Move: ")

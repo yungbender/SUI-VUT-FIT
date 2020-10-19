@@ -5,11 +5,11 @@ import pickle
 import random
 
 def convert_probability_to_classes(probability): # Converts float to one of: ["very low", "low", "medium", "high", "very high"]
-    if probability < 0.1:
+    if probability < 0.15:
         return "very low"
     elif probability < 0.3:
         return "low"
-    elif probability < 0.7:
+    elif probability < 0.65:
         return "medium"
     elif probability < 0.9:
         return "high"
