@@ -127,11 +127,7 @@ class AlphaDice:
                     turn_key = self.get_qtable_key(board, turn_source, turn_target, turn_action)
                     if turn_key not in self.q_table:
                         self.q_table[turn_key] = 0
-
-            if self.update_qtable:
-                self.q_table.save(self.snapshot_path + "snapshot.pickle")
-                if turn_key is not None: # Only save the moves we were attacking in
-                    self.save_move_to_file(turn_key)
+                        self.q_table.save(self.snapshot_path + "snapshot.pickle")
 
         if self.update_qtable and turn_key: # Don't update Qtable unless we did a move
             # Before ending our turn, we simulate other players' turns and get Q-value of best move from this simulated board
@@ -154,10 +150,7 @@ class AlphaDice:
             #print("Area: " + str(area_count) + " -> " + str(new_area_size))
             reward = (new_dice - region_size) * 0.25 # We compare dice count at round end to current biggest region size
             reward += (new_area_size - area_count) * 0.05 # Region size is more important
-            if turn_key[0][0] == "very low" and turn_key[1][0] == "attack" and reward < 0: # Punishment for very risky move
-                reward -= 2
-            elif turn_key[0][0] == "low" and turn_key[1][0] == "attack" and reward < 0: # Punishment for risky move
-                reward -= 1
+            reward = calculate_risk_reward_multiplier(turn_key, reward)
 
             # TODO: Motivate AI to defend
             # TODO: Make the AI not go on suicide missions
@@ -170,9 +163,13 @@ class AlphaDice:
             #print("Reward size: " + str(reward))
             #print("Previous move value: " + str(self.q_table[turn_key]))
             #print("Best new possible move: " + str(max_qvalue_next_move))
-            self.q_table[turn_key] = self.q_table[turn_key] * self.discount + self.learning_rate * (reward + self.discount * (max_qvalue_next_move - self.q_table[turn_key]))
+            self.q_table[turn_key] = self.q_table[turn_key] * self.discount + self.learning_rate * reward #+ self.discount * (max_qvalue_next_move - self.q_table[turn_key]))
             self.q_table = give_reward_to_better_turns(self.q_table, reward, turn_key)
             #print("New move value: " + str(self.q_table[turn_key]))
+
+            # Save the move to the list of played moves and SAVE THE QTABLE 
+            self.q_table.save(self.snapshot_path + "snapshot.pickle")
+            self.save_move_to_file(turn_key)
 
         if not attacks or turn_action == "defend" or not turn_source or not turn_target: # Source or target can be null when there are missing records in Q-table
             return EndTurnCommand()

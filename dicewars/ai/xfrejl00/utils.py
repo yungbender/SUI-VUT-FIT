@@ -11,10 +11,8 @@ def convert_probability_to_classes(probability): # Converts float to one of: ["v
         return "low"
     elif probability < 0.65:
         return "medium"
-    elif probability < 0.9:
+    else: #if probability < 0.9:
         return "high"
-    else:
-        return "very high"
 
 
 def region_size_potential_gain(board, source, target, player_name):
@@ -71,7 +69,7 @@ def give_new_dice(board, players):
                 break
 
 def give_reward_to_better_turns(q_table, reward, key): # Noticed that turns with same risks but better payoffs get neglected during training because they are not played often
-    if key[1][0] == "attack" and reward != 0:
+    if reward != 0:
         initial_value = key[0][2] # Potential field gain
         reward_multiplier = abs(reward * 0.01)
         for i in range(initial_value+1, 16): # 16 should be potential maximal region gain
@@ -81,5 +79,47 @@ def give_reward_to_better_turns(q_table, reward, key): # Noticed that turns with
             
             if key in q_table:
                 q_table[key] = q_table[key] + reward + reward_multiplier # Reward multiplier, working for both positive and negative rewards
-                reward_multiplier *= 1.01 
+                if key[1][0] == "attack": # Attack rewards increase and defend rewards decrease
+                    reward_multiplier *= 1.01
+                else:
+                    reward_multiplier *= 0.99
+            else: # Guarantees that all moves are created
+                q_table[key] = 0 
     return q_table
+
+def calculate_risk_reward_multiplier(key, reward): # Add reward based on riskiness of moves
+    if key[1][0] == "attack":
+        # Chance of winning
+        if key[0][0] == "very low":
+            reward -= 4
+        elif key[0][0] == "low":
+            reward -= 2
+        elif key[0][0] == "high":
+            reward += 4
+
+        # Field hold chance
+        if key[0][0] == "very low":
+            reward -= 2
+        elif key[0][0] == "low":
+            reward -= 1
+        elif key[0][0] == "high":
+            reward += 2 
+
+    if key[1][0] == "defend":
+        # Chance of winning
+        if key[0][0] == "very low":
+            reward += 4
+        elif key[0][0] == "low":
+            reward += 2
+        elif key[0][0] == "high":
+            reward -= 4
+
+        # Field hold chance
+        if key[0][0] == "very low":
+            reward += 2
+        elif key[0][0] == "low":
+            reward += 1
+        elif key[0][0] == "high":
+            reward -= 2
+    
+    return reward

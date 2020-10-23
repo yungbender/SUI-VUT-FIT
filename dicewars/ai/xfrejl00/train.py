@@ -95,9 +95,10 @@ def decay_lr_epsilon(lr, epsilon, lr_decay, epsilon_decay, min_lr, min_epsilon):
 def create_winrate_graphs(snapshot_path, df):
     # Calculate rolling average of winrate and save the stats to CSV file
     df["rolling_avg"] = df.iloc[:,0].rolling(window=200).mean()
+    df["rolling_avg_2000"] = df.iloc[:,0].rolling(window=2000).mean()
     df.to_csv(snapshot_path + "winrate_all.csv", index=True)
 
-    # Create graph
+    # Create graphs
     plt.figure(figsize=[15,10])
     plt.grid(True)
     plt.plot(df["rolling_avg"], label="Win rate")
@@ -105,6 +106,16 @@ def create_winrate_graphs(snapshot_path, df):
     plt.ylabel("Win rate")
     plt.legend(loc=2)
     plt.savefig(snapshot_path + "winrate_all.png")
+    plt.close()
+
+    plt.clf()
+    plt.figure(figsize=[15,10])
+    plt.grid(True)
+    plt.plot(df["rolling_avg_2000"], label="Win rate")
+    plt.xlabel("Games played")
+    plt.ylabel("Win rate")
+    plt.legend(loc=2)
+    plt.savefig(snapshot_path + "winrate_all_2000.png")
     plt.close()
 
 def train(matches_count=5000, 
@@ -140,10 +151,10 @@ def train(matches_count=5000,
             # Run and analyze the game
             game_output = subprocess.check_output(['python3', 'scripts/dicewars-ai-only.py', "--ai", opponents[0], opponents[1], opponents[2], opponents[3], "-d", "-l", "dicewars/logs"])
             opponents = np.roll(opponents, 1) # Rotate the opponents list
-            won_game = bool(re.match(".*Winner: xfrejl00.*", game_output.decode("utf-8"))) # True - trained AI won, False - trained AI lost
+            won_game = bool(re.search(".*Winner: xfrejl00.*", game_output.decode("utf-8"))) # True - trained AI won, False - trained AI lost
             played_moves = load_moves_from_game(snapshot_path)
             with open("dicewars/logs/client-xfrejl00.log", "r") as f:
-                if re.match(".*Traceback.*", f.read()):
+                if re.search(".*Traceback.*", f.read()):
                     print("Error: AI crashed during game.")
                     exit(-1)
 
@@ -154,7 +165,7 @@ def train(matches_count=5000,
             else:
                 placement = 4 - game_output.decode("utf-8").split(",").index("xfrejl00")
 
-                reward += 10 - (5 * placement) # 2nd place = 0 reward, 3rd place = -5 reward, 4th place = -10 reward
+                reward += 11 - (5 * placement) # 2nd place = -1 reward, 3rd place = -6 reward, 4th place = -11 reward
 
             # Add the game info to pandas dataframe
             df = df.append({"win" : won_game}, ignore_index=True)
