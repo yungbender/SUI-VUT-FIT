@@ -26,7 +26,7 @@ class AlphaDice:
         self.logger = logging.getLogger('AI')
         self.logger.info("Current time: " + datetime.now().strftime('%Y.%m.%d %H:%M:%S'))
 
-        self.q_table = QTable(states_count=3, action_count=1, qvalue_check=True)
+        self.q_table = QTable(states_count=4, action_count=1, qvalue_check=True)
 
         if self.update_qtable:
             with open(self.moves_path , "wb") as f: # Create the empty file for saved moves
@@ -51,12 +51,15 @@ class AlphaDice:
         success_probability = probability_of_successful_attack(board, source.get_name(), target.get_name())
         hold_probability = probability_of_holding_area(board, target.get_name(), source.get_dice() - 1, self.player_name)
         region_gain = region_size_potential_gain(board, source.get_name(), target, self.player_name)
+        region_destroy = region_size_potential_destroy(board, source, target, self.player_name)
 
         # Transform the probability into class probability (very low, low, medium, high, very high)
         success_probability = convert_probability_to_classes(success_probability)
         hold_probability = convert_probability_to_classes(hold_probability)
+        region_gain = convert_region_difference_to_classes(region_gain)
+        region_destroy = convert_region_difference_to_classes(region_destroy)
  
-        return ((success_probability, hold_probability, region_gain), (action, ))
+        return ((success_probability, hold_probability, region_gain, region_destroy), (action, ))
 
     def get_qtable_best_move(self, board, attacks):
         turn_source = None
@@ -164,7 +167,8 @@ class AlphaDice:
             #print("Previous move value: " + str(self.q_table[turn_key]))
             #print("Best new possible move: " + str(max_qvalue_next_move))
             self.q_table[turn_key] = self.q_table[turn_key] * self.discount + self.learning_rate * reward #+ self.discount * (max_qvalue_next_move - self.q_table[turn_key]))
-            self.q_table = give_reward_to_better_turns(self.q_table, reward, turn_key)
+            self.q_table = give_reward_to_better_turns(self.q_table, reward, turn_key, 2)
+            self.q_table = give_reward_to_better_turns(self.q_table, reward, turn_key, 3)
             #print("New move value: " + str(self.q_table[turn_key]))
 
             # Save the move to the list of played moves and SAVE THE QTABLE 

@@ -14,6 +14,15 @@ def convert_probability_to_classes(probability): # Converts float to one of: ["v
     else: #if probability < 0.9:
         return "high"
 
+def convert_region_difference_to_classes(difference):
+    if difference < 2:
+        return "very low"
+    elif difference < 4:
+        return "low"
+    elif difference < 7:
+        return "medium"
+    else:
+        return "high"
 
 def region_size_potential_gain(board, source, target, player_name):
     player_areas = board.get_player_areas(player_name) # Get all areas belonging to player
@@ -24,6 +33,22 @@ def region_size_potential_gain(board, source, target, player_name):
     total_size = len(board.get_areas_region(source, player_areas + [target.get_name()]))
 
     return min(total_size - attacking_field_size, attacking_field_size + 1) # We take the potential gain from perspective of the bigger region
+
+def region_size_potential_destroy(board, source, target, player_name): # How much the enemy region is decreased after the move
+    enemy_name = target.get_owner_name()
+
+    biggest_region_size = len(max(board.get_players_regions(enemy_name), key=len))
+
+    # Temporarily "give" the area to player
+    target.set_owner(player_name)
+
+    # Calculate the difference in region size before and after attack
+    size_difference = biggest_region_size - len(max(board.get_players_regions(enemy_name), key=len))
+
+    # Return the area to the enemy player
+    target.set_owner(enemy_name)
+
+    return size_difference
 
 def load_moves_from_game(snapshot_path):
     with open(snapshot_path + "moves.pickle", 'rb') as f:
@@ -68,13 +93,15 @@ def give_new_dice(board, players):
             if not player_areas: # If there's nowhere to give, break (we don't need to add dice to backup dice count)
                 break
 
-def give_reward_to_better_turns(q_table, reward, key): # Noticed that turns with same risks but better payoffs get neglected during training because they are not played often
+def give_reward_to_better_turns(q_table, reward, key, state): # Noticed that turns with same risks but better payoffs get neglected during training because they are not played often
     if reward != 0:
-        initial_value = key[0][2] # Potential field gain
+        initial_value = key[0][state] # Potential field gain
         reward_multiplier = abs(reward * 0.01)
-        for i in range(initial_value+1, 16): # 16 should be potential maximal region gain
+        classes = ["very low", "low", "medium", "high"]
+        start_index = classes.index(initial_value)
+        for i in classes[start_index+1:]: # Select only better classes
             key_list = [list(x) for x in key] # Convert tuple of tuples to list of lists so we can edit it
-            key_list[0][2] = i
+            key_list[0][state] = i
             key = tuple([tuple(x) for x in key_list]) # Revert
             
             if key in q_table:

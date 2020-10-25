@@ -15,7 +15,8 @@ from configparser import ConfigParser
 from dicewars.ai.xfrejl00.qtable import QTable
 from dicewars.ai.xfrejl00.utils import *
 
-ai_list = ["dt.ste", "dt.sdc", "dt.stei", "dt.wpm_c", "dt.wpm_d", "dt.wpm_s", "xlogin00", "xlogin42"]
+ai_list = ["dt.ste", "dt.sdc", "dt.stei", "dt.wpm_c", "dt.wpm_d", "dt.wpm_s", "xlogin00", "xlogin42", "nop", "alphadice-1"]
+ai_val = ["dt.rand", "dt.ste", "dt.sdc", "dt.wpm", "xlogin00"]
 
 class TrainExc(Exception):
     pass
@@ -23,6 +24,7 @@ class TrainExc(Exception):
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Train a Q-learning model from scratch or continue training from a snapshot.")
+    parser.add_argument("--evaluate", dest="evaluate", action="store_true", default=False, help="Run the AI against same AIs that it will encounter during grading.")
     parser.add_argument("--load_model", dest="load_model", action="store_true", default=False, help="Load weights and continue training.")
     parser.add_argument("--snapshot_path", dest="dest_folder", action="store", help="Choose from which folder the snapshot will be loaded. Defaults to the folder belonging the to latest training of model.")
     parser.add_argument("--matches_count", dest="matches_count", action="store", type=int, help="Number of matches the model will be trained for.")
@@ -77,11 +79,11 @@ def load_model(snapshot_path):
     return snapshot_path
 
 
-def setup_config(path):
+def setup_config(path, train=True):
     config = ConfigParser()
     config.read("dicewars/ai/xfrejl00/config.ini")
     config.set("BASE", "SnapshotPath", path)
-    config.set("BASE", "Train", "True")
+    config.set("BASE", "Train", str(train))
     with open("dicewars/ai/xfrejl00/config.ini", "w") as configfile:
         config.write(configfile)
 
@@ -92,11 +94,11 @@ def decay_lr_epsilon(lr, epsilon, lr_decay, epsilon_decay, min_lr, min_epsilon):
     return [max(lr, min_lr), max(epsilon, min_epsilon)]
 
 
-def create_winrate_graphs(snapshot_path, df):
+def create_winrate_graphs(snapshot_path, df, name_prefix=""):
     # Calculate rolling average of winrate and save the stats to CSV file
     df["rolling_avg"] = df.iloc[:,0].rolling(window=200).mean()
     df["rolling_avg_2000"] = df.iloc[:,0].rolling(window=2000).mean()
-    df.to_csv(snapshot_path + "winrate_all.csv", index=True)
+    df.to_csv(snapshot_path + name_prefix + "winrate_all.csv", index=True)
 
     # Create graphs
     plt.figure(figsize=[15,10])
@@ -105,7 +107,7 @@ def create_winrate_graphs(snapshot_path, df):
     plt.xlabel("Games played")
     plt.ylabel("Win rate")
     plt.legend(loc=2)
-    plt.savefig(snapshot_path + "winrate_all.png")
+    plt.savefig(snapshot_path + name_prefix + "winrate_all.png")
     plt.close()
 
     plt.clf()
@@ -115,8 +117,38 @@ def create_winrate_graphs(snapshot_path, df):
     plt.xlabel("Games played")
     plt.ylabel("Win rate")
     plt.legend(loc=2)
-    plt.savefig(snapshot_path + "winrate_all_2000.png")
+    plt.savefig(snapshot_path + name_prefix + "winrate_all_2000.png")
     plt.close()
+
+def evaluate(matches_count=1000, save_frequency=50, snapshot_path=None, **kwargs):
+    if snapshot_path is None:
+        print("Can't evaluate when there's no model given.")
+        exit(-1)
+
+    setup_config(snapshot_path, train=False)
+    print("Snapshot path: " + snapshot_path)
+    progress_bar = tqdm(total=matches_count)
+    df = pd.DataFrame(columns=["win", "rolling_avg"], dtype=int)
+
+    for i in range(0, matches_count, 4):
+        opponents = random.sample(ai_val, 3) + ["xfrejl00"] # Get 3 random opponents from list and add our AI
+        random.shuffle(opponents) # Shuffle the list
+        for j in range(4):
+            # Run and analyze the game
+            game_output = subprocess.check_output(['python3', 'scripts/dicewars-ai-only.py', "--ai", opponents[0], opponents[1], opponents[2], opponents[3], "-d", "-l", "dicewars/logs"])
+            opponents = np.roll(opponents, 1) # Rotate the opponents list
+            won_game = bool(re.search(".*Winner: xfrejl00.*", game_output.decode("utf-8"))) # True - trained AI won, False - trained AI lost
+            with open("dicewars/logs/client-xfrejl00.log", "r") as f:
+                if re.search(".*Traceback.*", f.read()):
+                    print("Error: AI crashed during game.")
+                    exit(-1)
+
+            # Add the game info to pandas dataframe
+            df = df.append({"win" : won_game}, ignore_index=True)
+            if i > 0 and (i + j) % save_frequency == 0:
+                create_winrate_graphs(snapshot_path, df, name_prefix="val_")
+            
+            progress_bar.update(1)
 
 def train(matches_count=5000, 
         save_frequency=50, 
@@ -143,7 +175,7 @@ def train(matches_count=5000,
 
     progress_bar = tqdm(total=matches_count)
 
-    q_table = QTable(states_count=3, action_count=1, qvalue_check=True)
+    q_table = QTable(states_count=4, action_count=1, qvalue_check=True)
     for i in range(0, matches_count, 4):
         opponents = random.sample(ai_list , 3) + ["xfrejl00"] # Get 3 random opponents from list and add our AI
         random.shuffle(opponents) # Shuffle the list
@@ -179,7 +211,8 @@ def train(matches_count=5000,
             for move in played_moves: # Give reward to all played moves in last game
                 # Bellman equation (for non-immediate rewards)
                 q_table[move] = q_table[move] * discount + learning_rate * reward
-                q_table = give_reward_to_better_turns(q_table, reward, move)
+                q_table = give_reward_to_better_turns(q_table, reward, move, 2)
+                q_table = give_reward_to_better_turns(q_table, reward, move, 3)
 
             # Decay learning rate and epsilon
             learning_rate, epsilon = decay_lr_epsilon(learning_rate, epsilon, learning_rate_decay, epsilon_decay, min_learning_rate, min_epsilon)
@@ -204,18 +237,21 @@ def main():
     else: # New snapshot
         if args.dest_folder: # New snapshot with selected name
             path = "dicewars/ai/xfrejl00/snapshots/" + args.dest_folder + "/"
-            if os.path.exists(path):
+            if os.path.exists(path) and not args.evaluate:
                 print("Error: Snapshot with this name already exists. Delete it, change snapshot name or start again with --load_model.")
                 exit(-1)
         else: # New snapshot with default name
             path = "dicewars/ai/xfrejl00/snapshots/" + datetime.now().strftime('%Y.%m.%d %H:%M:%S') + "/"
-        os.makedirs(path)
+        os.makedirs(path, exist_ok=True)
 
         q_table = QTable() # Create new Q-table
         q_table.save(path + "snapshot.pickle")
 
-    args = dict((arg, getattr(args,arg)) for arg in vars(args) if getattr(args, arg) is not None) # Remove not empty args so we can get default values of arguments
-    train(**args, snapshot_path=path)
+    args_cleaned = dict((arg, getattr(args,arg)) for arg in vars(args) if getattr(args, arg) is not None) # Remove not empty args so we can get default values of arguments
+    if args.evaluate:
+        evaluate(**args_cleaned, snapshot_path=path)
+    else:
+        train(**args_cleaned, snapshot_path=path)
 
 if __name__ == "__main__":
     main()

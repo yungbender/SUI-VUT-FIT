@@ -135,6 +135,6 @@ dmypy.json
 debug.save
 xfrejl00.save
 dicewars/ai/xfrejl00/snapshots*
-*.pickle
+dicewars/ai/xfrejl00/snapshots/*.pickle
 server.txt
 dicewars/logs/server.txt
