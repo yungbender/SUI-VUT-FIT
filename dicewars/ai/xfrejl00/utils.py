@@ -24,6 +24,17 @@ def convert_region_difference_to_classes(difference):
     else:
         return "high"
 
+def convert_neighbor_count_to_classes(count):
+    if count == 1:
+        return "one"
+    elif count == 2:
+        return "two"
+    else:
+        return "many"
+
+def neighboring_field_count(board, area):
+    return len(area.get_adjacent_areas())
+
 def region_size_potential_gain(board, source, target, player_name):
     player_areas = board.get_player_areas(player_name) # Get all areas belonging to player
     player_areas = [area.get_name() for area in player_areas] # Convert area objects to names
@@ -93,11 +104,10 @@ def give_new_dice(board, players):
             if not player_areas: # If there's nowhere to give, break (we don't need to add dice to backup dice count)
                 break
 
-def give_reward_to_better_turns(q_table, reward, key, state): # Noticed that turns with same risks but better payoffs get neglected during training because they are not played often
+def give_reward_to_better_turns(q_table, reward, learning_rate, key, state, classes): # Noticed that turns with same risks but better payoffs get neglected during training because they are not played often
     if reward != 0:
         initial_value = key[0][state] # Potential field gain
         reward_multiplier = abs(reward * 0.01)
-        classes = ["very low", "low", "medium", "high"]
         start_index = classes.index(initial_value)
         for i in classes[start_index+1:]: # Select only better classes
             key_list = [list(x) for x in key] # Convert tuple of tuples to list of lists so we can edit it
@@ -105,7 +115,7 @@ def give_reward_to_better_turns(q_table, reward, key, state): # Noticed that tur
             key = tuple([tuple(x) for x in key_list]) # Revert
             
             if key in q_table:
-                q_table[key] = q_table[key] + reward + reward_multiplier # Reward multiplier, working for both positive and negative rewards
+                q_table[key] = q_table[key] + learning_rate * (reward + reward_multiplier) # Reward multiplier, working for both positive and negative rewards
                 if key[1][0] == "attack": # Attack rewards increase and defend rewards decrease
                     reward_multiplier *= 1.01
                 else:
@@ -118,35 +128,41 @@ def calculate_risk_reward_multiplier(key, reward): # Add reward based on riskine
     if key[1][0] == "attack":
         # Chance of winning
         if key[0][0] == "very low":
-            reward -= 4
+            reward -= 1
         elif key[0][0] == "low":
-            reward -= 2
+            reward -= 0.5
         elif key[0][0] == "high":
-            reward += 4
+            reward += 1
 
         # Field hold chance
         if key[0][0] == "very low":
-            reward -= 2
+            reward -= 0.5
         elif key[0][0] == "low":
-            reward -= 1
+            reward -= 0.25
         elif key[0][0] == "high":
-            reward += 2 
+            reward += 0.5
 
     if key[1][0] == "defend":
         # Chance of winning
         if key[0][0] == "very low":
-            reward += 4
+            reward += 1
         elif key[0][0] == "low":
-            reward += 2
+            reward += 0.5
         elif key[0][0] == "high":
-            reward -= 4
+            reward -= 1
 
         # Field hold chance
         if key[0][0] == "very low":
-            reward += 2
+            reward += 0.5
         elif key[0][0] == "low":
-            reward += 1
+            reward += 0.25
         elif key[0][0] == "high":
-            reward -= 2
+            reward -= 0.5
     
     return reward
+
+def hidden_region_count(board, player_name):
+    areas = board.get_player_areas(player_name)
+    areas_on_border = board.get_player_border(player_name)
+
+    return len(areas) - len(areas_on_border) 

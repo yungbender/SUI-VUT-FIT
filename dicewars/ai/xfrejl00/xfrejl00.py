@@ -26,11 +26,13 @@ class AlphaDice:
         self.logger = logging.getLogger('AI')
         self.logger.info("Current time: " + datetime.now().strftime('%Y.%m.%d %H:%M:%S'))
 
-        self.q_table = QTable(states_count=4, action_count=1, qvalue_check=True)
+        self.q_table = QTable(states_count=5, action_count=1, qvalue_check=True)
 
         if self.update_qtable:
             with open(self.moves_path , "wb") as f: # Create the empty file for saved moves
                 pickle.dump([], f)
+
+        self.logger.info(f"Epsilon: {self.epsilon}, Learning rate: {self.learning_rate}, Discount: {self.discount}, Train? {self.update_qtable}")
         
     def save_move_to_file(self, key):
         move_list = []
@@ -42,24 +44,21 @@ class AlphaDice:
             pickle.dump(move_list, f)
 
     def get_qtable_key(self, board, source, target, action):
-        """ State definition:
-            - Probability of winning the encounter (very low, low, medium, high, very high)?)
-            - Region size potential gain
-            - Probability of keeping the area until the next turn (very low, low, medium, high, very high)
-        """
         # Get the individual states
         success_probability = probability_of_successful_attack(board, source.get_name(), target.get_name())
         hold_probability = probability_of_holding_area(board, target.get_name(), source.get_dice() - 1, self.player_name)
         region_gain = region_size_potential_gain(board, source.get_name(), target, self.player_name)
         region_destroy = region_size_potential_destroy(board, source, target, self.player_name)
-
+        neighbor_count = neighboring_field_count(board, target)
+        
         # Transform the probability into class probability (very low, low, medium, high, very high)
         success_probability = convert_probability_to_classes(success_probability)
         hold_probability = convert_probability_to_classes(hold_probability)
         region_gain = convert_region_difference_to_classes(region_gain)
         region_destroy = convert_region_difference_to_classes(region_destroy)
+        neighbor_count = convert_neighbor_count_to_classes(neighbor_count)
  
-        return ((success_probability, hold_probability, region_gain, region_destroy), (action, ))
+        return ((success_probability, hold_probability, region_gain, region_destroy, neighbor_count), (action, ))
 
     def get_qtable_best_move(self, board, attacks):
         turn_source = None
@@ -113,7 +112,7 @@ class AlphaDice:
     def ai_turn(self, board, nb_moves_this_turn, nb_turns_this_game, time_left):
         #with open("xfrejl00.save", "wb") as f:
         #    save_state(f, board, self.player_name, self.players_order)
-
+        
         turn_key = None
         attacks = list(possible_attacks(board, self.player_name))
         if attacks:
@@ -140,6 +139,7 @@ class AlphaDice:
             new_board, new_dice = self.simulate_game(new_board)
             new_attacks = list(possible_attacks(new_board, self.player_name))
             new_area_size = len(new_board.get_player_areas(self.player_name))
+            new_hidden_regions = hidden_region_count(new_board, self.player_name)
             best_move = self.get_qtable_best_move(new_board, new_attacks)[2]
             if best_move:
                 max_qvalue_next_move = self.q_table[best_move]
@@ -149,16 +149,13 @@ class AlphaDice:
             # Calculate reward
             area_count = len(board.get_player_areas(self.player_name)) 
             region_size = len(max(board.get_players_regions(self.player_name), key=len))
+            hidden_regions = hidden_region_count(board, self.player_name)
             #print("Region: " + str(region_size) + " -> " + str(new_dice))
             #print("Area: " + str(area_count) + " -> " + str(new_area_size))
             reward = (new_dice - region_size) * 0.25 # We compare dice count at round end to current biggest region size
             reward += (new_area_size - area_count) * 0.05 # Region size is more important
+            reward += (new_hidden_regions - hidden_regions) * 0.25
             reward = calculate_risk_reward_multiplier(turn_key, reward)
-
-            # TODO: Motivate AI to defend
-            # TODO: Make the AI not go on suicide missions
-            # TODO: Think about moving potential field gain to reward instead (or add all states with brute force)
-            #   - Make enemy neighbor count a new state instead?
 
             # Bellman equation for new Q-table value calculation
             #print("Move: ")
@@ -167,8 +164,8 @@ class AlphaDice:
             #print("Previous move value: " + str(self.q_table[turn_key]))
             #print("Best new possible move: " + str(max_qvalue_next_move))
             self.q_table[turn_key] = self.q_table[turn_key] * self.discount + self.learning_rate * reward #+ self.discount * (max_qvalue_next_move - self.q_table[turn_key]))
-            self.q_table = give_reward_to_better_turns(self.q_table, reward, turn_key, 2)
-            self.q_table = give_reward_to_better_turns(self.q_table, reward, turn_key, 3)
+            self.q_table = give_reward_to_better_turns(self.q_table, reward, self.learning_rate, turn_key, 2, ["very low", "low", "medium", "high"])
+            self.q_table = give_reward_to_better_turns(self.q_table, reward, self.learning_rate, turn_key, 3, ["very low", "low", "medium", "high"])
             #print("New move value: " + str(self.q_table[turn_key]))
 
             # Save the move to the list of played moves and SAVE THE QTABLE 

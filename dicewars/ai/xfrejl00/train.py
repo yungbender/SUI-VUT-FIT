@@ -16,7 +16,7 @@ from dicewars.ai.xfrejl00.qtable import QTable
 from dicewars.ai.xfrejl00.utils import *
 
 ai_list = ["dt.ste", "dt.sdc", "dt.stei", "dt.wpm_c", "dt.wpm_d", "dt.wpm_s", "xlogin00", "xlogin42", "nop", "alphadice-1"]
-ai_val = ["dt.rand", "dt.ste", "dt.sdc", "dt.wpm", "xlogin00"]
+ai_val = ["dt.rand", "dt.ste", "dt.sdc", "dt.wpm_c", "xlogin00"]
 
 class TrainExc(Exception):
     pass
@@ -93,31 +93,31 @@ def decay_lr_epsilon(lr, epsilon, lr_decay, epsilon_decay, min_lr, min_epsilon):
     epsilon = epsilon * epsilon_decay
     return [max(lr, min_lr), max(epsilon, min_epsilon)]
 
-
-def create_winrate_graphs(snapshot_path, df, name_prefix=""):
+def save_snapshots(snapshot_path, q_table, df, name, save=True):
+    q_table.save(snapshot_path + "snapshot_backup.pickle")
     # Calculate rolling average of winrate and save the stats to CSV file
+    max_winrate = df.iloc[:,1].max()
     df["rolling_avg"] = df.iloc[:,0].rolling(window=200).mean()
     df["rolling_avg_2000"] = df.iloc[:,0].rolling(window=2000).mean()
-    df.to_csv(snapshot_path + name_prefix + "winrate_all.csv", index=True)
+    if save:
+        df.to_csv(snapshot_path + name + ".csv", index=True)
+        
+        new_max_winrate = df.iloc[:,1].max()
+        if max_winrate < new_max_winrate: # New biggest winrate, save the snapshot to separate folder
+            os.makedirs(snapshot_path + "records/", exist_ok=True)
+            q_table.save(snapshot_path + "records/" + name + "_" + str(new_max_winrate) + ".pickle")
 
+    return df
+
+def create_winrate_graphs(snapshot_path, data, name):
     # Create graphs
     plt.figure(figsize=[15,10])
     plt.grid(True)
-    plt.plot(df["rolling_avg"], label="Win rate")
+    plt.plot(data, label="Win rate")
     plt.xlabel("Games played")
     plt.ylabel("Win rate")
     plt.legend(loc=2)
-    plt.savefig(snapshot_path + name_prefix + "winrate_all.png")
-    plt.close()
-
-    plt.clf()
-    plt.figure(figsize=[15,10])
-    plt.grid(True)
-    plt.plot(df["rolling_avg_2000"], label="Win rate")
-    plt.xlabel("Games played")
-    plt.ylabel("Win rate")
-    plt.legend(loc=2)
-    plt.savefig(snapshot_path + name_prefix + "winrate_all_2000.png")
+    plt.savefig(snapshot_path + name + ".png")
     plt.close()
 
 def evaluate(matches_count=1000, save_frequency=50, snapshot_path=None, **kwargs):
@@ -146,7 +146,9 @@ def evaluate(matches_count=1000, save_frequency=50, snapshot_path=None, **kwargs
             # Add the game info to pandas dataframe
             df = df.append({"win" : won_game}, ignore_index=True)
             if i > 0 and (i + j) % save_frequency == 0:
-                create_winrate_graphs(snapshot_path, df, name_prefix="val_")
+                df = save_snapshots(snapshot_path, q_table, df, "val_winrate", save=True)
+                create_winrate_graphs(snapshot_path, df["rolling_avg"], "val_winrate")
+                create_winrate_graphs(snapshot_path, df["rolling_avg_2000"], "val_winrate_2000")
             
             progress_bar.update(1)
 
@@ -155,11 +157,11 @@ def train(matches_count=5000,
         snapshot_path=None,
         learning_rate=0.85, # Subject to change, will also decay during training
         epsilon=0.9, # Subject to change, will also decay during training
-        discount=0.999, # Subject to change
+        discount=0.99, # Subject to change
         epsilon_decay=0.999, # Subject to change
-        learning_rate_decay=0.999, # Subject to change
-        min_learning_rate=0.3, # Subject to change
-        min_epsilon=0.01, # Subject to change
+        learning_rate_decay=0.9995, # Subject to change
+        min_learning_rate=0.001, # Subject to change
+        min_epsilon=0, # Subject to change
         load_model=False,
         **kwargs):
 
@@ -175,7 +177,7 @@ def train(matches_count=5000,
 
     progress_bar = tqdm(total=matches_count)
 
-    q_table = QTable(states_count=4, action_count=1, qvalue_check=True)
+    q_table = QTable(states_count=5, action_count=1, qvalue_check=True)
     for i in range(0, matches_count, 4):
         opponents = random.sample(ai_list , 3) + ["xfrejl00"] # Get 3 random opponents from list and add our AI
         random.shuffle(opponents) # Shuffle the list
@@ -204,15 +206,16 @@ def train(matches_count=5000,
 
             # Create and save winrate graphs, snapshot backup
             if i > 0 and (i + j) % save_frequency == 0:
-                q_table.save(snapshot_path + "snapshot_backup.pickle")
-                create_winrate_graphs(snapshot_path, df)
+                df = save_snapshots(snapshot_path, q_table, df, "winrate_all")
+                create_winrate_graphs(snapshot_path, df["rolling_avg"], "winrate_all")
+                create_winrate_graphs(snapshot_path, df["rolling_avg_2000"], "winrate_all_2000")
 
             q_table = q_table.load(snapshot_path + "snapshot.pickle")
             for move in played_moves: # Give reward to all played moves in last game
                 # Bellman equation (for non-immediate rewards)
                 q_table[move] = q_table[move] * discount + learning_rate * reward
-                q_table = give_reward_to_better_turns(q_table, reward, move, 2)
-                q_table = give_reward_to_better_turns(q_table, reward, move, 3)
+                q_table = give_reward_to_better_turns(q_table, reward, learning_rate, move, 2, ["very low", "low", "medium", "high"])
+                q_table = give_reward_to_better_turns(q_table, reward, learning_rate, move, 3, ["very low", "low", "medium", "high"])
 
             # Decay learning rate and epsilon
             learning_rate, epsilon = decay_lr_epsilon(learning_rate, epsilon, learning_rate_decay, epsilon_decay, min_learning_rate, min_epsilon)
@@ -222,17 +225,13 @@ def train(matches_count=5000,
             save_parameters(snapshot_path, learning_rate, epsilon, discount)
 
             progress_bar.update(1)
-    """
-    TODO: Gather relevant data
-        - Moving averate of winrate against AI that our AI was not trained on (for validation purposes)
-    """
 
 def main():
     args = parse_args()
     environment_setup()
     fetch_machine()
 
-    if args.load_model: # Load selected or latest snapshot
+    if args.load_model or args.evaluate: # Load selected or latest snapshot
         path = load_model(args.dest_folder)
     else: # New snapshot
         if args.dest_folder: # New snapshot with selected name
