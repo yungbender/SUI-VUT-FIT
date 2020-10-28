@@ -3,6 +3,7 @@ import random
 import pickle
 import numpy as np
 import copy
+import os
 from datetime import datetime
 from configparser import ConfigParser
 
@@ -27,6 +28,9 @@ class AlphaDice:
         self.logger.info("Current time: " + datetime.now().strftime('%Y.%m.%d %H:%M:%S'))
 
         self.q_table = QTable(states_count=5, action_count=1, qvalue_check=True)
+
+        if os.path.isfile(self.snapshot_path + "snapshot.pickle"): # Snapshot already exists
+            self.q_table = self.q_table.load(self.snapshot_path + "snapshot.pickle")
 
         if self.update_qtable:
             with open(self.moves_path , "wb") as f: # Create the empty file for saved moves
@@ -116,7 +120,6 @@ class AlphaDice:
         turn_key = None
         attacks = list(possible_attacks(board, self.player_name))
         if attacks:
-            self.q_table = self.q_table.load(self.snapshot_path + "snapshot.pickle")
             if random.uniform(0, 1) > self.epsilon or self.update_qtable == False: # Select action based on Q-table, don't play random when not training
                 turn_source, turn_target, turn_key, turn_action = self.get_qtable_best_move(board, attacks)
             else: # Select a random action
@@ -129,7 +132,6 @@ class AlphaDice:
                     turn_key = self.get_qtable_key(board, turn_source, turn_target, turn_action)
                     if turn_key not in self.q_table:
                         self.q_table[turn_key] = 0
-                        self.q_table.save(self.snapshot_path + "snapshot.pickle")
 
         if self.update_qtable and turn_key: # Don't update Qtable unless we did a move
             # Before ending our turn, we simulate other players' turns and get Q-value of best move from this simulated board
@@ -168,11 +170,11 @@ class AlphaDice:
             self.q_table = give_reward_to_better_turns(self.q_table, reward, self.learning_rate, turn_key, 3, ["very low", "low", "medium", "high"])
             #print("New move value: " + str(self.q_table[turn_key]))
 
-            # Save the move to the list of played moves and SAVE THE QTABLE 
-            self.q_table.save(self.snapshot_path + "snapshot.pickle")
+            # Save the move to the list of played moves and SAVE THE QTABLE
             self.save_move_to_file(turn_key)
 
         if not attacks or turn_action == "defend" or not turn_source or not turn_target: # Source or target can be null when there are missing records in Q-table
+            self.q_table.save(self.snapshot_path + "snapshot.pickle")
             return EndTurnCommand()
         else:
             return BattleCommand(turn_source.get_name(), turn_target.get_name())

@@ -236,7 +236,7 @@ def main():
     else: # New snapshot
         if args.dest_folder: # New snapshot with selected name
             path = "dicewars/ai/xfrejl00/snapshots/" + args.dest_folder + "/"
-            if os.path.exists(path) and not args.evaluate:
+            if os.path.exists(path) and os.path.isfile(path + "snapshot.pickle") and not args.evaluate:
                 print("Error: Snapshot with this name already exists. Delete it, change snapshot name or start again with --load_model.")
                 exit(-1)
         else: # New snapshot with default name
