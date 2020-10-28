@@ -178,3 +178,6 @@ class AlphaDice:
             return EndTurnCommand()
         else:
             return BattleCommand(turn_source.get_name(), turn_target.get_name())
+
+    def save_training(self):
+        self.q_table.save(self.snapshot_path + "snapshot.pickle")

@@ -295,6 +295,15 @@ class Game:
         if nickname == "xfrejl00 (AI)": # End the game if we lost, so we don't simulate the rest of the game
             self.placement.append("xfrejl00")
             print(','.join(self.placement))
+
+            for player in self.players.values():
+                self.send_message(player, 'game_end', winner=99)
+
+            try:
+                self.close_connections()
+            except BrokenPipeError:
+                pass
+
             exit(0)
         else:
             self.placement.append(nickname)

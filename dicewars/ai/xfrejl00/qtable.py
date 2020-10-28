@@ -2,7 +2,6 @@ import os
 import pickle
 import collections
 
-
 class QTableExc(Exception):
     pass
 
@@ -52,10 +51,12 @@ class QTable(collections.UserDict):
         self.__dict__ = state
 
     def save(self, where: str):
-        with open(where, "wb") as file:
-            pickle.dump(self, file)
+        with open(where, "w") as file:
+            file.write(str(self.__dict__))
 
     @staticmethod
     def load(where: str):
-        with open(where, "rb") as file:
-            return pickle.load(file)
+        with open(where, "r") as file:
+            qtable = QTable()
+            qtable.__dict__ = eval(file.read())
+        return qtable

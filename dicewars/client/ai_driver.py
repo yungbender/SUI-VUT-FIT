@@ -80,10 +80,10 @@ class AIDriver:
             message = game.input_queue.get(block=True, timeout=None)
             try:
                 if not self.handle_server_message(message):
-                    exit(0)
+                    break
             except JSONDecodeError:
                 self.logger.error("Invalid message from server.")
-                exit(1)
+                break
             self.current_player_name = game.current_player.get_name()
             if self.current_player_name == self.player_name and not self.waitingForResponse:
                 if self.ai_disabled:
@@ -113,6 +113,11 @@ class AIDriver:
                 if not self.waitingForResponse:
                     self.logger.warning("Forced 'end_turn' because the implementation did nothing")
                     self.send_message('end_turn')
+
+        try:
+            self.ai.save_training()
+        except AttributeError:
+            pass
 
     def handle_server_message(self, msg):
         """Process message from the server

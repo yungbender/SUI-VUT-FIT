@@ -177,7 +177,6 @@ def train(matches_count=5000,
 
     progress_bar = tqdm(total=matches_count)
 
-    q_table = QTable(states_count=5, action_count=1, qvalue_check=True)
     for i in range(0, matches_count, 4):
         opponents = random.sample(ai_list , 3) + ["xfrejl00"] # Get 3 random opponents from list and add our AI
         random.shuffle(opponents) # Shuffle the list
@@ -210,7 +209,7 @@ def train(matches_count=5000,
                 create_winrate_graphs(snapshot_path, df["rolling_avg"], "winrate_all")
                 create_winrate_graphs(snapshot_path, df["rolling_avg_2000"], "winrate_all_2000")
 
-            q_table = q_table.load(snapshot_path + "snapshot.pickle")
+            q_table = QTable.load(snapshot_path + "snapshot.pickle")
             for move in played_moves: # Give reward to all played moves in last game
                 # Bellman equation (for non-immediate rewards)
                 q_table[move] = q_table[move] * discount + learning_rate * reward
