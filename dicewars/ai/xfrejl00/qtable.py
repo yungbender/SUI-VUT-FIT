@@ -1,6 +1,6 @@
 import os
-import pickle
 import collections
+import shelve
 
 class QTableExc(Exception):
     pass
@@ -11,6 +11,7 @@ class QTable(collections.UserDict):
         self.states_count = states_count
         self.action_count = action_count
         self.qvalue_check = qvalue_check
+        self.shelve = None
 
         super().__init__(self)
 
@@ -50,13 +51,40 @@ class QTable(collections.UserDict):
     def __setstate__(self, state):
         self.__dict__ = state
 
-    def save(self, where: str):
-        with open(where, "w") as file:
-            file.write(str(self.__dict__))
+    def save(self, where: str, deepcopy=False):
+        if deepcopy:
+            with shelve.open(where, "c") as sh:
+                sh["states_count"] = self.states_count
+                sh["action_count"] = self.action_count
+                sh["qvalue_check"] = self.qvalue_check
+                sh["data"] = self.__dict__["data"]
+        else:
+            if not self.shelve:
+                self.shelve = shelve.open(where, "c", writeback=True)
+                self.shelve["states_count"] = self.states_count
+                self.shelve["action_count"] = self.action_count
+                self.shelve["qvalue_check"] = self.qvalue_check
+
+            self.shelve["data"] = self.__dict__["data"]
+            self.shelve.sync()
 
     @staticmethod
     def load(where: str):
-        with open(where, "r") as file:
-            qtable = QTable()
-            qtable.__dict__ = eval(file.read())
+        sh = shelve.open(where, "c", writeback=True)
+        qtable = QTable()
+        if "data" in sh:
+            qtable.states_count = sh["states_count"]
+            qtable.action_count = sh["action_count"]
+            qtable.qvalue_check = sh["qvalue_check"]
+            qtable.__dict__["data"] = sh["data"]
+        qtable.shelve = sh
         return qtable
+
+    def close(self):
+        if self.shelve:
+            self.shelve.close()
+            self.shelve = None
+
+    def __del__(self):
+        if self.shelve:
+            self.close()

@@ -32,20 +32,17 @@ class AlphaDice:
         if os.path.isfile(self.snapshot_path + "snapshot.pickle"): # Snapshot already exists
             self.q_table = self.q_table.load(self.snapshot_path + "snapshot.pickle")
 
-        if self.update_qtable:
-            with open(self.moves_path , "wb") as f: # Create the empty file for saved moves
-                pickle.dump([], f)
-
         self.logger.info(f"Epsilon: {self.epsilon}, Learning rate: {self.learning_rate}, Discount: {self.discount}, Train? {self.update_qtable}")
+
+        if self.update_qtable:
+            with shelve.open(self.moves_path, "n") as f:
+                f["moves"] = []
         
     def save_move_to_file(self, key):
-        move_list = []
-        with open(self.moves_path, 'rb') as f: # Load file
-            move_list = pickle.load(f)
-        
-        move_list.append(key) # Add the current move
-        with open(self.moves_path, 'wb') as f: # Save file
-            pickle.dump(move_list, f)
+        with shelve.open(self.moves_path, "c", writeback=True) as f:
+            if "moves" not in f:
+                f["moves"] = []
+            f["moves"].append(key)
 
     def get_qtable_key(self, board, source, target, action):
         # Get the individual states
@@ -174,10 +171,11 @@ class AlphaDice:
             self.save_move_to_file(turn_key)
 
         if not attacks or turn_action == "defend" or not turn_source or not turn_target: # Source or target can be null when there are missing records in Q-table
-            self.q_table.save(self.snapshot_path + "snapshot.pickle")
+            #self.q_table.save(self.snapshot_path + "snapshot.pickle")
             return EndTurnCommand()
         else:
             return BattleCommand(turn_source.get_name(), turn_target.get_name())
 
     def save_training(self):
         self.q_table.save(self.snapshot_path + "snapshot.pickle")
+        self.q_table.close()

@@ -94,7 +94,7 @@ def decay_lr_epsilon(lr, epsilon, lr_decay, epsilon_decay, min_lr, min_epsilon):
     return [max(lr, min_lr), max(epsilon, min_epsilon)]
 
 def save_snapshots(snapshot_path, q_table, df, name, save=True):
-    q_table.save(snapshot_path + "snapshot_backup.pickle")
+    q_table.save(snapshot_path + "snapshot_backup.pickle", deepcopy=True)
     # Calculate rolling average of winrate and save the stats to CSV file
     max_winrate = df.iloc[:,1].max()
     df["rolling_avg"] = df.iloc[:,0].rolling(window=200).mean()
@@ -221,6 +221,7 @@ def train(matches_count=5000,
 
             # Save the Q-table and training config
             q_table.save(snapshot_path + "snapshot.pickle")
+            q_table.close()
             save_parameters(snapshot_path, learning_rate, epsilon, discount)
 
             progress_bar.update(1)
@@ -244,6 +245,7 @@ def main():
 
         q_table = QTable() # Create new Q-table
         q_table.save(path + "snapshot.pickle")
+        q_table.close()
 
     args_cleaned = dict((arg, getattr(args,arg)) for arg in vars(args) if getattr(args, arg) is not None) # Remove not empty args so we can get default values of arguments
     if args.evaluate:

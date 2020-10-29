@@ -1,8 +1,8 @@
 from dicewars.client.game.board import Board
 from dicewars.client.ai_driver import BattleCommand, EndTurnCommand
 from dicewars.ai.utils import probability_of_successful_attack
-import pickle
 import random
+import shelve
 
 def convert_probability_to_classes(probability): # Converts float to one of: ["very low", "low", "medium", "high", "very high"]
     if probability < 0.15:
@@ -62,16 +62,16 @@ def region_size_potential_destroy(board, source, target, player_name): # How muc
     return size_difference
 
 def load_moves_from_game(snapshot_path):
-    with open(snapshot_path + "moves.pickle", 'rb') as f:
-        return pickle.load(f)
+    with shelve.open(snapshot_path + "moves.pickle", "c") as f:
+        return f["moves"]
 
 def load_parameters(snapshot_path):
-    with open(snapshot_path + "config.pickle", "rb") as f:
-        return pickle.load(f)
+    with shelve.open(snapshot_path + "config.pickle", "c") as f:
+        return f["parameters"]
 
 def save_parameters(snapshot_path, lr, epsilon, discount):
-    with open(snapshot_path + "config.pickle", 'wb') as f: 
-        pickle.dump([lr, epsilon, discount], f)
+    with shelve.open(snapshot_path + "config.pickle", "c") as f:
+        f["parameters"] = [lr, epsilon, discount]
 
 def simulate_attack(board, turn):
     # Simulate whether attack succeeded
