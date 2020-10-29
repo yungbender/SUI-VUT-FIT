@@ -105,7 +105,7 @@ def give_new_dice(board, players):
                 break
 
 def give_reward_to_better_turns(q_table, reward, learning_rate, key, state, classes): # Noticed that turns with same risks but better payoffs get neglected during training because they are not played often
-    if reward != 0:
+    if reward > 0:
         initial_value = key[0][state] # Potential field gain
         reward_multiplier = abs(reward * 0.01)
         start_index = classes.index(initial_value)

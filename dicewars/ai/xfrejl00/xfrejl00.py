@@ -156,6 +156,11 @@ class AlphaDice:
             reward += (new_hidden_regions - hidden_regions) * 0.25
             reward = calculate_risk_reward_multiplier(turn_key, reward)
 
+            # Udělat neuronovku, která bude počítat šanci na výhru z aktuálního stavu hry
+            # Porovnat její výstup na simulaci stavu před zahráním tahu a na simulaci po zahrání tahu
+            # Použít stejný seed pro obě simulace, aby nehrálo roli rng u kostek a útoků
+            # Využít jako velký reward nebo v Bellmanově rovnici
+
             # Bellman equation for new Q-table value calculation
             #print("Move: ")
             #print(turn_key)
@@ -171,7 +176,6 @@ class AlphaDice:
             self.save_move_to_file(turn_key)
 
         if not attacks or turn_action == "defend" or not turn_source or not turn_target: # Source or target can be null when there are missing records in Q-table
-            #self.q_table.save(self.snapshot_path + "snapshot.pickle")
             return EndTurnCommand()
         else:
             return BattleCommand(turn_source.get_name(), turn_target.get_name())

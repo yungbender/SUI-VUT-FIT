@@ -178,7 +178,7 @@ def train(matches_count=5000,
     progress_bar = tqdm(total=matches_count)
 
     for i in range(0, matches_count, 4):
-        opponents = random.sample(ai_list , 3) + ["xfrejl00"] # Get 3 random opponents from list and add our AI
+        opponents = random.sample(ai_list, 3) + ["xfrejl00"] # Get 3 random opponents from list and add our AI
         random.shuffle(opponents) # Shuffle the list
         for j in range(4):
             # Run and analyze the game
@@ -194,20 +194,14 @@ def train(matches_count=5000,
             # Calculate the reward
             reward = 0
             if won_game:
-                reward += 10 * (2 + 200 / len(played_moves)) # Motivation to win ASAP
+                reward += 20 * (2 + 300 / len(played_moves)) # Motivation to win ASAP
             else:
                 placement = 4 - game_output.decode("utf-8").split(",").index("xfrejl00")
 
-                reward += 11 - (5 * placement) # 2nd place = -1 reward, 3rd place = -6 reward, 4th place = -11 reward
+                reward -= 10 * placement # 2nd place = -20 reward, 3rd place = -30 reward, 4th place = -40 reward
 
             # Add the game info to pandas dataframe
             df = df.append({"win" : won_game}, ignore_index=True)
-
-            # Create and save winrate graphs, snapshot backup
-            if i > 0 and (i + j) % save_frequency == 0:
-                df = save_snapshots(snapshot_path, q_table, df, "winrate_all")
-                create_winrate_graphs(snapshot_path, df["rolling_avg"], "winrate_all")
-                create_winrate_graphs(snapshot_path, df["rolling_avg_2000"], "winrate_all_2000")
 
             q_table = QTable.load(snapshot_path + "snapshot.pickle")
             for move in played_moves: # Give reward to all played moves in last game
@@ -215,6 +209,12 @@ def train(matches_count=5000,
                 q_table[move] = q_table[move] * discount + learning_rate * reward
                 q_table = give_reward_to_better_turns(q_table, reward, learning_rate, move, 2, ["very low", "low", "medium", "high"])
                 q_table = give_reward_to_better_turns(q_table, reward, learning_rate, move, 3, ["very low", "low", "medium", "high"])
+
+            # Create and save winrate graphs, snapshot backup
+            if i > 0 and (i + j) % save_frequency == 0:
+                df = save_snapshots(snapshot_path, q_table, df, "winrate_all")
+                create_winrate_graphs(snapshot_path, df["rolling_avg"], "winrate_all")
+                create_winrate_graphs(snapshot_path, df["rolling_avg_2000"], "winrate_all_2000")
 
             # Decay learning rate and epsilon
             learning_rate, epsilon = decay_lr_epsilon(learning_rate, epsilon, learning_rate_decay, epsilon_decay, min_learning_rate, min_epsilon)
