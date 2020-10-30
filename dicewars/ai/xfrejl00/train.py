@@ -9,6 +9,7 @@ import re
 import random
 import pickle
 import pandas as pd
+import signal
 from tqdm import tqdm
 from datetime import datetime
 from configparser import ConfigParser
@@ -17,9 +18,22 @@ from dicewars.ai.xfrejl00.utils import *
 
 ai_list = ["dt.ste", "dt.sdc", "dt.stei", "dt.wpm_c", "dt.wpm_d", "dt.wpm_s", "xlogin00", "xlogin42", "nop", "alphadice-1"]
 ai_val = ["dt.rand", "dt.ste", "dt.sdc", "dt.wpm_c", "xlogin00"]
+SIGINT_CALLED = False
 
 class TrainExc(Exception):
     pass
+
+
+def terminate(*_):
+    print("Requesting finish...")
+    global SIGINT_CALLED
+    SIGINT_CALLED = True
+
+
+def children_ignore():
+    signals = (signal.SIGINT, signal.SIGTERM, signal.SIGHUP)
+    for sig in signals:
+        signal.signal(sig, signal.SIG_IGN)
 
 
 def parse_args():
@@ -103,9 +117,9 @@ def save_snapshots(snapshot_path, q_table, df, name, save=True):
         df.to_csv(snapshot_path + name + ".csv", index=True)
         
         new_max_winrate = df.iloc[:,1].max()
-        if max_winrate < new_max_winrate: # New biggest winrate, save the snapshot to separate folder
+        if new_max_winrate >= max_winrate: # New biggest winrate, save the snapshot to separate folder
             os.makedirs(snapshot_path + "records/", exist_ok=True)
-            q_table.save(snapshot_path + "records/" + name + "_" + str(new_max_winrate) + ".pickle")
+            q_table.save(snapshot_path + "records/" + name + "_" + str(new_max_winrate) + ".pickle", deepcopy=True)
 
     return df
 
@@ -151,6 +165,8 @@ def evaluate(matches_count=1000, save_frequency=50, snapshot_path=None, **kwargs
                 create_winrate_graphs(snapshot_path, df["rolling_avg_2000"], "val_winrate_2000")
             
             progress_bar.update(1)
+            if SIGINT_CALLED:
+                return
 
 def train(matches_count=5000, 
         save_frequency=50, 
@@ -182,7 +198,8 @@ def train(matches_count=5000,
         random.shuffle(opponents) # Shuffle the list
         for j in range(4):
             # Run and analyze the game
-            game_output = subprocess.check_output(['python3', 'scripts/dicewars-ai-only.py', "--ai", opponents[0], opponents[1], opponents[2], opponents[3], "-d", "-l", "dicewars/logs"])
+            game_output = subprocess.check_output(['python3', 'scripts/dicewars-ai-only.py', "--ai", opponents[0], opponents[1], opponents[2], opponents[3], "-d", "-l", "dicewars/logs"],
+                                                  preexec_fn=children_ignore)
             opponents = np.roll(opponents, 1) # Rotate the opponents list
             won_game = bool(re.search(".*Winner: xfrejl00.*", game_output.decode("utf-8"))) # True - trained AI won, False - trained AI lost
             played_moves = load_moves_from_game(snapshot_path)
@@ -226,10 +243,18 @@ def train(matches_count=5000,
 
             progress_bar.update(1)
 
+            if SIGINT_CALLED:
+                return
+
+
 def main():
     args = parse_args()
     environment_setup()
     fetch_machine()
+
+    signals = (signal.SIGINT, signal.SIGTERM, signal.SIGHUP)
+    for sig in signals:
+        signal.signal(sig, terminate)
 
     if args.load_model or args.evaluate: # Load selected or latest snapshot
         path = load_model(args.dest_folder)

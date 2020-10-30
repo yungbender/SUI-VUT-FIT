@@ -4,6 +4,7 @@ import pickle
 import numpy as np
 import copy
 import os
+import signal
 from datetime import datetime
 from configparser import ConfigParser
 
@@ -37,7 +38,7 @@ class AlphaDice:
         if self.update_qtable:
             with shelve.open(self.moves_path, "n") as f:
                 f["moves"] = []
-        
+
     def save_move_to_file(self, key):
         with shelve.open(self.moves_path, "c", writeback=True) as f:
             if "moves" not in f:
