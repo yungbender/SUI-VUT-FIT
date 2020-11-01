@@ -104,12 +104,16 @@ def give_new_dice(board, players):
             if not player_areas: # If there's nowhere to give, break (we don't need to add dice to backup dice count)
                 break
 
-def give_reward_to_better_turns(q_table, reward, learning_rate, key, state, classes): # Noticed that turns with same risks but better payoffs get neglected during training because they are not played often
-    if reward > 0:
+def give_reward_to_better_turns(q_table, reward, learning_rate, key, state, classes, start=True): # Noticed that turns with same risks but better payoffs get neglected during training because they are not played often
+    if reward != 0:
         initial_value = key[0][state] # Potential field gain
         reward_multiplier = abs(reward * 0.01)
-        start_index = classes.index(initial_value)
-        for i in classes[start_index+1:]: # Select only better classes
+        if start: # Just so we give reward to first key only once
+            start_index = classes.index(initial_value)
+        else:
+            start_index = classes.index(initial_value) + 1
+
+        for i in classes[start_index:]: # Select only better classes
             key_list = [list(x) for x in key] # Convert tuple of tuples to list of lists so we can edit it
             key_list[0][state] = i
             key = tuple([tuple(x) for x in key_list]) # Revert
@@ -121,7 +125,12 @@ def give_reward_to_better_turns(q_table, reward, learning_rate, key, state, clas
                 else:
                     reward_multiplier *= 0.99
             else: # Guarantees that all moves are created
-                q_table[key] = 0 
+                q_table[key] = 0
+
+            if state < 3:
+                q_table = give_reward_to_better_turns(q_table, reward + reward_multiplier, learning_rate, key, 3, ["very low", "low", "medium", "high"], start=False)
+            if state < 4:
+                q_table = give_reward_to_better_turns(q_table, reward + reward_multiplier, learning_rate, key, 4, ["many", "two", "one"], start=False)
     return q_table
 
 def calculate_risk_reward_multiplier(key, reward): # Add reward based on riskiness of moves
@@ -165,4 +174,29 @@ def hidden_region_count(board, player_name):
     areas = board.get_player_areas(player_name)
     areas_on_border = board.get_player_border(player_name)
 
-    return len(areas) - len(areas_on_border) 
+    return len(areas) - len(areas_on_border)
+
+def get_areas_in_danger(board, player_name):
+    areas_in_danger = []
+    for area in board.get_player_border(player_name):
+        neighbours = area.get_adjacent_areas()
+
+        for adj in neighbours:
+            adjacent_area = board.get_area(adj)
+            if adjacent_area.get_owner_name() != player_name:
+                if adjacent_area.get_dice() > area.get_dice(): # Neighboring enemy area has atleast 1 more dice than owned area
+                    areas_in_danger.append(area)
+                    break
+    
+    return areas_in_danger
+
+def get_most_opponent_regions(board, player_name, players_order):
+    max_regions = 0
+    for player in players_order:
+        if player != player_name:
+            areas = board.get_player_areas(player)
+
+            if len(areas) > max_regions:
+                max_regions = len(areas)
+    
+    return max_regions

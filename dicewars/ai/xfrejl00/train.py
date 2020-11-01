@@ -108,13 +108,14 @@ def decay_lr_epsilon(lr, epsilon, lr_decay, epsilon_decay, min_lr, min_epsilon):
     return [max(lr, min_lr), max(epsilon, min_epsilon)]
 
 def save_snapshots(snapshot_path, q_table, df, name, save=True):
-    q_table.save(snapshot_path + "snapshot_backup.pickle", deepcopy=True)
     # Calculate rolling average of winrate and save the stats to CSV file
     max_winrate = df.iloc[:,1].max()
     df["rolling_avg"] = df.iloc[:,0].rolling(window=200).mean()
     df["rolling_avg_2000"] = df.iloc[:,0].rolling(window=2000).mean()
-    if save:
-        df.to_csv(snapshot_path + name + ".csv", index=True)
+    df.to_csv(snapshot_path + name + ".csv", index=True)
+
+    if save: # During training, we save snapshot backups and best models
+        q_table.save(snapshot_path + "snapshot_backup.pickle", deepcopy=True)
         
         new_max_winrate = df.iloc[:,1].max()
         if new_max_winrate >= max_winrate: # New biggest winrate, save the snapshot to separate folder
@@ -160,7 +161,7 @@ def evaluate(matches_count=1000, save_frequency=50, snapshot_path=None, **kwargs
             # Add the game info to pandas dataframe
             df = df.append({"win" : won_game}, ignore_index=True)
             if i > 0 and (i + j) % save_frequency == 0:
-                df = save_snapshots(snapshot_path, q_table, df, "val_winrate", save=True)
+                df = save_snapshots(snapshot_path, None, df, "val_winrate", save=False)
                 create_winrate_graphs(snapshot_path, df["rolling_avg"], "val_winrate")
                 create_winrate_graphs(snapshot_path, df["rolling_avg_2000"], "val_winrate_2000")
             
@@ -171,12 +172,12 @@ def evaluate(matches_count=1000, save_frequency=50, snapshot_path=None, **kwargs
 def train(matches_count=5000, 
         save_frequency=50, 
         snapshot_path=None,
-        learning_rate=0.85, # Subject to change, will also decay during training
+        learning_rate=1, # Subject to change, will also decay during training
         epsilon=0.9, # Subject to change, will also decay during training
-        discount=0.99, # Subject to change
+        discount=0.999, # Subject to change
         epsilon_decay=0.999, # Subject to change
-        learning_rate_decay=0.9995, # Subject to change
-        min_learning_rate=0.001, # Subject to change
+        learning_rate_decay=1, # Subject to change
+        min_learning_rate=1, # Subject to change
         min_epsilon=0, # Subject to change
         load_model=False,
         **kwargs):
@@ -197,6 +198,10 @@ def train(matches_count=5000,
         opponents = random.sample(ai_list, 3) + ["xfrejl00"] # Get 3 random opponents from list and add our AI
         random.shuffle(opponents) # Shuffle the list
         for j in range(4):
+            # Clear the statistics file
+            with open(snapshot_path + "statistics.txt", "w"):
+                pass 
+            
             # Run and analyze the game
             game_output = subprocess.check_output(['python3', 'scripts/dicewars-ai-only.py', "--ai", opponents[0], opponents[1], opponents[2], opponents[3], "-d", "-l", "dicewars/logs"],
                                                   preexec_fn=children_ignore)
@@ -208,6 +213,16 @@ def train(matches_count=5000,
                     print("Error: AI crashed during game.")
                     exit(-1)
 
+            # Move the moves from game to correct file
+            if won_game:
+                with open(snapshot_path + "statistics.txt", "r") as stats:
+                    with open(snapshot_path + "positives.txt", "a+") as dataset:
+                        dataset.write(stats.read()) 
+            else:
+                with open(snapshot_path + "statistics.txt", "r") as stats:
+                    with open(snapshot_path + "negatives.txt", "a+") as dataset:
+                        dataset.write(stats.read()) 
+
             # Calculate the reward
             reward = 0
             if won_game:
@@ -217,15 +232,19 @@ def train(matches_count=5000,
 
                 reward -= 10 * placement # 2nd place = -20 reward, 3rd place = -30 reward, 4th place = -40 reward
 
+                with open("dicewars/logs/server.txt", "r") as f: # If game ended because AI decided not to play, we give it huge negative reward
+                    if re.search("INFO:SERVER:Game cancelled because the limit of.*", f.read()):
+                        reward = -200
+
             # Add the game info to pandas dataframe
             df = df.append({"win" : won_game}, ignore_index=True)
 
             q_table = QTable.load(snapshot_path + "snapshot.pickle")
             for move in played_moves: # Give reward to all played moves in last game
                 # Bellman equation (for non-immediate rewards)
-                q_table[move] = q_table[move] * discount + learning_rate * reward
+                q_table[move] = q_table[move] * discount #+ learning_rate * reward
                 q_table = give_reward_to_better_turns(q_table, reward, learning_rate, move, 2, ["very low", "low", "medium", "high"])
-                q_table = give_reward_to_better_turns(q_table, reward, learning_rate, move, 3, ["very low", "low", "medium", "high"])
+                # reward *= 1 - 1 / len(played_moves) # Value end-game moves more than early game moves
 
             # Create and save winrate graphs, snapshot backup
             if i > 0 and (i + j) % save_frequency == 0:

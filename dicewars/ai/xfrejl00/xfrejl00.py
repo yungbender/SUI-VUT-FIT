@@ -45,6 +45,28 @@ class AlphaDice:
                 f["moves"] = []
             f["moves"].append(key)
 
+    def get_game_statistics(self, board, nb_turns_this_game, save=True):
+        total_dice_count = 0
+        for i in self.players_order:
+            total_dice_count += board.get_player_dice(i)
+
+        nb_players = board.nb_players_alive() # Number of remaining players
+        biggest_region_size = len(max(board.get_players_regions(self.player_name), key=len)) # Biggest region size
+        hidden_regions = hidden_region_count(board, self.player_name) # Hidden region count
+        area_share = len(board.get_player_areas(self.player_name)) / len(board.areas) # Total share of board owned
+        dice_share = board.get_player_dice(self.player_name) / total_dice_count # Total share of dice owned
+        dice_total = board.get_player_dice(self.player_name) # Total dice count
+        region_count = len(board.get_players_regions(self.player_name)) # Region count
+        areas_on_border = len(board.get_player_border(self.player_name)) / len(board.get_player_areas(self.player_name)) # Total share of areas on border
+        areas_in_danger = len(get_areas_in_danger(board, self.player_name)) / len(board.get_player_areas(self.player_name)) # Total share of areas in danger
+        most_regions_opponent = get_most_opponent_regions(board, self.player_name, self.players_order)
+
+        if save:
+            with open(self.snapshot_path + "statistics.txt", "a+") as f:
+                f.write(f"{nb_players} {biggest_region_size} {hidden_regions} {area_share} {dice_share} {dice_total} {region_count} {areas_on_border} {areas_in_danger} {most_regions_opponent}\n")
+        
+        return [nb_players, biggest_region_size, hidden_regions, area_share, dice_share, dice_total, region_count, areas_on_border, areas_in_danger, most_regions_opponent]
+
     def get_qtable_key(self, board, source, target, action):
         # Get the individual states
         success_probability = probability_of_successful_attack(board, source.get_name(), target.get_name())
@@ -168,15 +190,18 @@ class AlphaDice:
             #print("Reward size: " + str(reward))
             #print("Previous move value: " + str(self.q_table[turn_key]))
             #print("Best new possible move: " + str(max_qvalue_next_move))
-            self.q_table[turn_key] = self.q_table[turn_key] * self.discount + self.learning_rate * reward #+ self.discount * (max_qvalue_next_move - self.q_table[turn_key]))
+            self.q_table[turn_key] = self.q_table[turn_key] * self.discount #+ self.learning_rate * reward #+ self.discount * (max_qvalue_next_move - self.q_table[turn_key]))
             self.q_table = give_reward_to_better_turns(self.q_table, reward, self.learning_rate, turn_key, 2, ["very low", "low", "medium", "high"])
-            self.q_table = give_reward_to_better_turns(self.q_table, reward, self.learning_rate, turn_key, 3, ["very low", "low", "medium", "high"])
             #print("New move value: " + str(self.q_table[turn_key]))
 
             # Save the move to the list of played moves and SAVE THE QTABLE
             self.save_move_to_file(turn_key)
 
         if not attacks or turn_action == "defend" or not turn_source or not turn_target: # Source or target can be null when there are missing records in Q-table
+            if self.update_qtable:
+                # Save various game statistics which will be used for dataset creation
+                self.get_game_statistics(board, nb_turns_this_game)
+            
             return EndTurnCommand()
         else:
             return BattleCommand(turn_source.get_name(), turn_target.get_name())
