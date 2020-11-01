@@ -60,12 +60,13 @@ class AlphaDice:
         areas_on_border = len(board.get_player_border(self.player_name)) / len(board.get_player_areas(self.player_name)) # Total share of areas on border
         areas_in_danger = len(get_areas_in_danger(board, self.player_name)) / len(board.get_player_areas(self.player_name)) # Total share of areas in danger
         most_regions_opponent = get_most_opponent_regions(board, self.player_name, self.players_order)
+        avg_region_distance = average_region_distance(board, self.player_name)
 
         if save:
             with open(self.snapshot_path + "statistics.txt", "a+") as f:
-                f.write(f"{nb_players} {biggest_region_size} {hidden_regions} {area_share} {dice_share} {dice_total} {region_count} {areas_on_border} {areas_in_danger} {most_regions_opponent}\n")
+                f.write(f"{nb_players} {biggest_region_size} {hidden_regions} {area_share} {dice_share} {dice_total} {region_count} {areas_on_border} {areas_in_danger} {most_regions_opponent} {avg_region_distance}\n")
         
-        return [nb_players, biggest_region_size, hidden_regions, area_share, dice_share, dice_total, region_count, areas_on_border, areas_in_danger, most_regions_opponent]
+        return [nb_players, biggest_region_size, hidden_regions, area_share, dice_share, dice_total, region_count, areas_on_border, areas_in_danger, most_regions_opponent, avg_region_distance]
 
     def get_qtable_key(self, board, source, target, action):
         # Get the individual states

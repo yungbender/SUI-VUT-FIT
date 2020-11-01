@@ -1,6 +1,7 @@
 from dicewars.client.game.board import Board
 from dicewars.client.ai_driver import BattleCommand, EndTurnCommand
 from dicewars.ai.utils import probability_of_successful_attack
+from itertools import combinations
 import random
 import shelve
 
@@ -200,3 +201,55 @@ def get_most_opponent_regions(board, player_name, players_order):
                 max_regions = len(areas)
     
     return max_regions
+
+def area_distance(board, source, target):
+    visited_areas = [source.get_name()]
+    areas_to_visit = source.get_adjacent_areas()
+    new_areas_to_visit = []
+    distance = 1
+
+    while areas_to_visit: # While there are areas to visit
+        for area in areas_to_visit:
+            visited_areas.append(area)
+            
+            new_areas = board.get_area(area).get_adjacent_areas()
+
+            for new_area in new_areas: 
+                if new_area not in visited_areas and new_area not in areas_to_visit: # If area hasn't been already visited or isn't supposed to be, add it into "new_areas_to_visit" list
+                    if new_area not in new_areas_to_visit: # We don'ť need to visit the same area twice
+                        new_areas_to_visit.append(new_area)
+        
+        if target.get_name() in new_areas_to_visit: # If target area will be found next turn, return the distance
+            return distance
+
+        # Target area wasn't found in current list, so the distance is bigger (BFS) 
+        distance += 1
+
+        areas_to_visit = new_areas_to_visit
+        new_areas_to_visit = []
+    
+    return distance
+
+def average_region_distance(board, player_name):
+    regions = board.get_players_regions(player_name)
+
+    region_combinations = list(combinations(range(len(regions)), 2)) # All combinations of regions
+
+    total_distance_between_regions = 0
+    for source_idx, target_idx in region_combinations:
+        min_distance = 99
+        source_reg = regions[source_idx]
+        target_reg = regions[target_idx]
+        for source_area in source_reg:
+            for target_area in target_reg:
+                distance = area_distance(board, board.get_area(source_area), board.get_area(target_area))
+
+                if min_distance > distance:
+                    min_distance = distance
+
+        total_distance_between_regions += min_distance
+
+    if len(region_combinations) == 0: # We have only one region => there is no distance
+        return 0
+    else:
+        return total_distance_between_regions / len(region_combinations)
