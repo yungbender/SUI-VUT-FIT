@@ -130,44 +130,44 @@ def give_reward_to_better_turns(q_table, reward, learning_rate, key, state, clas
 
             if state < 3:
                 q_table = give_reward_to_better_turns(q_table, reward + reward_multiplier, learning_rate, key, 3, ["very low", "low", "medium", "high"], start=False)
-            if state < 4:
-                q_table = give_reward_to_better_turns(q_table, reward + reward_multiplier, learning_rate, key, 4, ["many", "two", "one"], start=False)
+            #if state < 4:
+            #    q_table = give_reward_to_better_turns(q_table, reward + reward_multiplier, learning_rate, key, 4, ["many", "two", "one"], start=False)
     return q_table
 
 def calculate_risk_reward_multiplier(key, reward): # Add reward based on riskiness of moves
     if key[1][0] == "attack":
         # Chance of winning
         if key[0][0] == "very low":
-            reward -= 1
+            reward -= 4
         elif key[0][0] == "low":
-            reward -= 0.5
+            reward -= 2
         elif key[0][0] == "high":
-            reward += 1
+            reward += 2
 
         # Field hold chance
         if key[0][0] == "very low":
-            reward -= 0.5
+            reward -= 2
         elif key[0][0] == "low":
-            reward -= 0.25
+            reward -= 1
         elif key[0][0] == "high":
-            reward += 0.5
+            reward += 1
 
     if key[1][0] == "defend":
         # Chance of winning
         if key[0][0] == "very low":
-            reward += 1
+            reward += 4
         elif key[0][0] == "low":
-            reward += 0.5
+            reward += 2
         elif key[0][0] == "high":
-            reward -= 1
+            reward -= 2
 
         # Field hold chance
         if key[0][0] == "very low":
-            reward += 0.5
+            reward += 2
         elif key[0][0] == "low":
-            reward += 0.25
+            reward += 1
         elif key[0][0] == "high":
-            reward -= 0.5
+            reward -= 1
     
     return reward
 

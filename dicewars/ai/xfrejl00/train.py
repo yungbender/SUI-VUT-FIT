@@ -174,7 +174,7 @@ def train(matches_count=5000,
         snapshot_path=None,
         learning_rate=1, # Subject to change, will also decay during training
         epsilon=0.9, # Subject to change, will also decay during training
-        discount=0.999, # Subject to change
+        discount=0.99, # Subject to change
         epsilon_decay=0.999, # Subject to change
         learning_rate_decay=1, # Subject to change
         min_learning_rate=1, # Subject to change
@@ -244,7 +244,7 @@ def train(matches_count=5000,
                 # Bellman equation (for non-immediate rewards)
                 q_table[move] = q_table[move] * discount #+ learning_rate * reward
                 q_table = give_reward_to_better_turns(q_table, reward, learning_rate, move, 2, ["very low", "low", "medium", "high"])
-                # reward *= 1 - 1 / len(played_moves) # Value end-game moves more than early game moves
+                reward *= 1 - 1 / len(played_moves) # Value end-game moves more than early game moves
 
             # Create and save winrate graphs, snapshot backup
             if i > 0 and (i + j) % save_frequency == 0:

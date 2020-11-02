@@ -7,11 +7,13 @@ import os
 import signal
 from datetime import datetime
 from configparser import ConfigParser
+from torch import load, tensor
 
 from dicewars.client.ai_driver import BattleCommand, EndTurnCommand
 from dicewars.ai.utils import save_state, possible_attacks, probability_of_successful_attack, probability_of_holding_area
 from dicewars.ai.xfrejl00.qtable import QTable
 from dicewars.ai.xfrejl00.utils import *
+from dicewars.ai.xfrejl00.classifier import LogisticRegressionMultiFeature
 
 class AlphaDice:
     def __init__(self, player_name, board, players_order):
@@ -29,6 +31,9 @@ class AlphaDice:
         self.logger.info("Current time: " + datetime.now().strftime('%Y.%m.%d %H:%M:%S'))
 
         self.q_table = QTable(states_count=5, action_count=1, qvalue_check=True)
+        self.classifier = LogisticRegressionMultiFeature(11)
+        self.classifier.load_state_dict(load("dicewars/ai/xfrejl00/classifier_model.pt"))
+        self.classifier.eval()
 
         if os.path.isfile(self.snapshot_path + "snapshot.pickle"): # Snapshot already exists
             self.q_table = self.q_table.load(self.snapshot_path + "snapshot.pickle")
@@ -199,9 +204,9 @@ class AlphaDice:
             self.save_move_to_file(turn_key)
 
         if not attacks or turn_action == "defend" or not turn_source or not turn_target: # Source or target can be null when there are missing records in Q-table
-            if self.update_qtable:
-                # Save various game statistics which will be used for dataset creation
-                self.get_game_statistics(board, nb_turns_this_game)
+            # Save various game statistics which will be used for dataset creation
+            statistics = self.get_game_statistics(board, nb_turns_this_game, self.update_qtable)
+            print(f"Probability to win: {self.classifier(tensor(statistics))}")
             
             return EndTurnCommand()
         else:
