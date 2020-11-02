@@ -15,6 +15,7 @@ from datetime import datetime
 from configparser import ConfigParser
 from dicewars.ai.xfrejl00.qtable import QTable
 from dicewars.ai.xfrejl00.utils import *
+from scripts.utils import run_ai_only_game, BoardDefinition
 
 ai_list = ["dt.ste", "dt.sdc", "dt.stei", "dt.wpm_c", "dt.wpm_d", "dt.wpm_s", "xlogin00", "xlogin42", "nop", "alphadice-1"]
 ai_val = ["dt.rand", "dt.ste", "dt.sdc", "dt.wpm_c", "xlogin00"]
@@ -63,13 +64,6 @@ def fetch_machine():
     # Print relevant info about machine
     print("Using computer: " + os.uname()[1])
     print("Current time: " + datetime.now().strftime('%Y.%m.%d %H:%M:%S'))
-    #print("Tensorflow version: " + tf.__version__)
-    #freeGpu = subprocess.check_output('nvidia-smi -q | grep "Minor\|Processes" | grep "None" -B1 | tr -d " " | cut -d ":" -f2 | sed -n "1p"', shell=True)
-    #if len(freeGpu) == 0:
-    #    print('WARNING: No usable GPU available!')
-    #else:
-    #    os.environ['CUDA_VISIBLE_DEVICES'] = freeGpu.decode().strip()
-    #    print("Found GPU: " + str(freeGpu))
 
 
 def load_model(snapshot_path):
@@ -135,6 +129,12 @@ def create_winrate_graphs(snapshot_path, data, name):
     plt.savefig(snapshot_path + name + ".png")
     plt.close()
 
+def run_game(ai_list):
+    process_list = [] # If we would like to handle signals
+    board = BoardDefinition(None,None,None)
+    result = run_ai_only_game(5005, "127.0.0.1", process_list, ai_list, board, logdir="dicewars/logs", debug=True)
+    return result
+
 def evaluate(matches_count=1000, save_frequency=50, snapshot_path=None, **kwargs):
     if snapshot_path is None:
         print("Can't evaluate when there's no model given.")
@@ -150,7 +150,7 @@ def evaluate(matches_count=1000, save_frequency=50, snapshot_path=None, **kwargs
         random.shuffle(opponents) # Shuffle the list
         for j in range(4):
             # Run and analyze the game
-            game_output = subprocess.check_output(['python3', 'scripts/dicewars-ai-only.py', "--ai", opponents[0], opponents[1], opponents[2], opponents[3], "-d", "-l", "dicewars/logs"])
+            game_output = run_game(opponents)
             opponents = np.roll(opponents, 1) # Rotate the opponents list
             won_game = bool(re.search(".*Winner: xfrejl00.*", game_output.decode("utf-8"))) # True - trained AI won, False - trained AI lost
             with open("dicewars/logs/client-xfrejl00.log", "r") as f:
@@ -203,10 +203,9 @@ def train(matches_count=5000,
                 pass 
             
             # Run and analyze the game
-            game_output = subprocess.check_output(['python3', 'scripts/dicewars-ai-only.py', "--ai", opponents[0], opponents[1], opponents[2], opponents[3], "-d", "-l", "dicewars/logs"],
-                                                  preexec_fn=children_ignore)
+            game_output = run_game(opponents)
             opponents = np.roll(opponents, 1) # Rotate the opponents list
-            won_game = bool(re.search(".*Winner: xfrejl00.*", game_output.decode("utf-8"))) # True - trained AI won, False - trained AI lost
+            won_game = bool(re.search(".*Winner: xfrejl00.*", game_output)) # True - trained AI won, False - trained AI lost
             played_moves = load_moves_from_game(snapshot_path)
             with open("dicewars/logs/client-xfrejl00.log", "r") as f:
                 if re.search(".*Traceback.*", f.read()):
@@ -228,7 +227,7 @@ def train(matches_count=5000,
             if won_game:
                 reward += 20 * (2 + 300 / len(played_moves)) # Motivation to win ASAP
             else:
-                placement = 4 - game_output.decode("utf-8").split(",").index("xfrejl00")
+                placement = 4 - game_output.split(",").index("xfrejl00")
 
                 reward -= 10 * placement # 2nd place = -20 reward, 3rd place = -30 reward, 4th place = -40 reward
 

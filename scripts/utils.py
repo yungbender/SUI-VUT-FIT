@@ -5,6 +5,7 @@ import tempfile
 import numpy as np
 import random
 import re
+import signal
 
 from dicewars.server.summary import GameSummary
 
@@ -30,6 +31,12 @@ class BoardDefinition:
 
     def __str__(self):
         return "board: {}, ownership: {}, strength: {}".format(self.board, self.ownership, self.strength)
+
+
+def children_ignore():
+    signals = (signal.SIGINT, signal.SIGTERM, signal.SIGHUP)
+    for sig in signals:
+        signal.signal(sig, signal.SIG_IGN)
 
 
 def get_logging_level(args):
@@ -90,7 +97,7 @@ def run_ai_only_game(
 
     server_output = tempfile.TemporaryFile('w+')
     logs.append(log_file_producer(logdir, 'server.txt'))
-    process_list.append(Popen(server_cmd, stdout=server_output, stderr=logs[-1]))
+    process_list.append(Popen(server_cmd, stdout=server_output, stderr=logs[-1], preexec_fn=children_ignore))
 
     for ai_version in ais:
         client_cmd = [
@@ -105,7 +112,7 @@ def run_ai_only_game(
             client_cmd.extend(['--debug', 'DEBUG'])
 
         logs.append(log_file_producer(logdir, 'client-{}.log'.format(ai_version)))
-        process_list.append(Popen(client_cmd, stderr=logs[-1]))
+        process_list.append(Popen(client_cmd, stderr=logs[-1], preexec_fn=children_ignore))
 
     for p in process_list:
         p.wait()
