@@ -1,9 +1,9 @@
-import torch
-import torch.nn.functional as F
-torch.set_default_dtype(torch.float64)
+from torch import from_numpy, squeeze, float64, set_default_dtype, tensor, load, save
+from torch.nn import Linear, parameter, LeakyReLU, Sigmoid, Module, BCELoss
+from torch.optim import Adam
+set_default_dtype(float64)
 import numpy as np
 import copy
-import matplotlib.pyplot as plt
 import argparse
 import pickle
 
@@ -18,17 +18,17 @@ train_dataset = Dataset("dicewars/ai/xfrejl00/positives.trn", "dicewars/ai/xfrej
 val_dataset = Dataset("dicewars/ai/xfrejl00/positives.val", "dicewars/ai/xfrejl00/negatives.val")
 
 
-class LogisticRegressionMultiFeature(torch.nn.Module):
+class LogisticRegressionMultiFeature(Module):
     def __init__(self, nb_features):
         super().__init__()
-        self.max_accuracy = torch.nn.parameter.Parameter(torch.tensor(0.0))
+        self.max_accuracy = parameter.Parameter(tensor(0.0))
         self.output_size = 1
         self.nb_features = nb_features
-        self.linear = torch.nn.Linear(self.nb_features, 16)
-        self.linear2 = torch.nn.Linear(16, 16)
-        self.linear3 = torch.nn.Linear(16, 1)
-        self.leakyrelu = torch.nn.LeakyReLU()
-        self.sigmoid = torch.nn.Sigmoid()
+        self.linear = Linear(self.nb_features, 16)
+        self.linear2 = Linear(16, 16)
+        self.linear3 = Linear(16, 1)
+        self.leakyrelu = LeakyReLU()
+        self.sigmoid = Sigmoid()
     
     def forward(self, x):
         x = self.linear(x)
@@ -37,10 +37,10 @@ class LogisticRegressionMultiFeature(torch.nn.Module):
         x = self.leakyrelu(x)
         x = self.linear3(x)
         x = self.sigmoid(x)
-        return torch.squeeze(x)
+        return squeeze(x)
     
     def prob_class_1(self, x):
-        prob = self(torch.from_numpy(x))
+        prob = self(from_numpy(x))
         return prob.detach().numpy()
 
 def evaluate(classifier, inputs, targets):
@@ -52,22 +52,22 @@ def evaluate(classifier, inputs, targets):
 def batch_provider(xs, targets, batch_size=10):
     for _ in range(int(np.ceil(len(xs) / batch_size))):
         indices = np.random.randint(0, len(xs), batch_size)
-        batch_samples = torch.tensor(xs[indices], dtype=float)
-        batch_targets = torch.tensor(targets[indices], dtype=float)
+        batch_samples = tensor(xs[indices], dtype=float)
+        batch_targets = tensor(targets[indices], dtype=float)
         yield batch_samples, batch_targets
 
 
 def train_multi_fea_llr(nb_features, nb_epochs, lr, batch_size, load_model=False):
     model = LogisticRegressionMultiFeature(nb_features)
     if load_model:
-        model.load_state_dict(torch.load("dicewars/ai/xfrejl00/classifier_model.pt"))
+        model.load_state_dict(load(f"dicewars/ai/xfrejl00/classifier_model_{nb_features}.pt"))
         model.eval()
 
     best_model = copy.deepcopy(model)
     losses = []
     accuracies = []
-    criterion = torch.nn.BCELoss()
-    optimizer = torch.optim.Adam(model.parameters(), lr=lr)
+    criterion = BCELoss()
+    optimizer = Adam(model.parameters(), lr=lr)
     print(f"Best model accuracy so far: {model.max_accuracy.double()}")
     
     for epoch in range(1, nb_epochs+1):
@@ -84,7 +84,7 @@ def train_multi_fea_llr(nb_features, nb_epochs, lr, batch_size, load_model=False
         accuracy = evaluate(model, val_dataset.xs, val_dataset.targets)
         if accuracy >= model.max_accuracy.double():
             best_model = copy.deepcopy(model)
-            model.max_accuracy = torch.nn.parameter.Parameter(torch.tensor(accuracy), requires_grad=False)
+            model.max_accuracy = parameter.Parameter(tensor(accuracy), requires_grad=False)
         print(f"Epoch {epoch}/{nb_epochs}: loss - {avg_loss}, validation accuracy: {accuracy}")
         accuracies.append(accuracy)
         losses.append(avg_loss)
@@ -97,15 +97,16 @@ def train():
     args = parser.parse_args()
 
     max_epochs = 500
-    nb_features = 11
+    nb_features = 12
     learning_rate = 0.001
     batch_size = 128
 
     model_multi_fea, losses, accuracies = train_multi_fea_llr(nb_features, max_epochs, learning_rate, batch_size, args.load_model)
     print(f"Best model accuracy: {model_multi_fea.max_accuracy.double()}")
 
-    torch.save(model_multi_fea.state_dict(), "dicewars/ai/xfrejl00/classifier_model.pt")
+    save(model_multi_fea.state_dict(), f"dicewars/ai/xfrejl00/classifier_model_{nb_features}.pt")
 
+    import matplotlib.pyplot as plt
     plt.ylabel("Loss value")
     plt.xlabel("Epochs")
     x = np.linspace(1, max_epochs, max_epochs)

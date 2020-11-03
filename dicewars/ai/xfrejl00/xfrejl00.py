@@ -15,6 +15,8 @@ from dicewars.ai.xfrejl00.qtable import QTable
 from dicewars.ai.xfrejl00.utils import *
 from dicewars.ai.xfrejl00.classifier import LogisticRegressionMultiFeature
 
+DROPOUT_RATE = 0.9 # How many dataset inputs will get dropped
+
 class AlphaDice:
     def __init__(self, player_name, board, players_order):
         self.player_name = player_name
@@ -50,7 +52,7 @@ class AlphaDice:
                 f["moves"] = []
             f["moves"].append(key)
 
-    def get_game_statistics(self, board, nb_turns_this_game, save=True):
+    def get_game_statistics(self, board, nb_turns_this_game, on_turn=True, save=False):
         total_dice_count = 0
         for i in self.players_order:
             total_dice_count += board.get_player_dice(i)
@@ -62,14 +64,17 @@ class AlphaDice:
         dice_share = board.get_player_dice(self.player_name) / total_dice_count # Total share of dice owned
         dice_total = board.get_player_dice(self.player_name) # Total dice count
         region_count = len(board.get_players_regions(self.player_name)) # Region count
-        areas_on_border = len(board.get_player_border(self.player_name)) / len(board.get_player_areas(self.player_name)) # Total share of areas on border
-        areas_in_danger = len(get_areas_in_danger(board, self.player_name)) / len(board.get_player_areas(self.player_name)) # Total share of areas in danger
+        if len(board.get_player_areas(self.player_name)) > 0: # Player is alive
+            areas_on_border = len(board.get_player_border(self.player_name)) / len(board.get_player_areas(self.player_name)) # Total share of areas on border
+            areas_in_danger = len(get_areas_in_danger(board, self.player_name)) / len(board.get_player_areas(self.player_name)) # Total share of areas in danger
+        else:
+            areas_in_danger = areas_on_border = 0
         most_regions_opponent = get_most_opponent_regions(board, self.player_name, self.players_order)
         avg_region_distance = average_region_distance(board, self.player_name)
 
         if save:
             with open(self.snapshot_path + "statistics.txt", "a+") as f:
-                f.write(f"{nb_players} {biggest_region_size} {hidden_regions} {area_share} {dice_share} {dice_total} {region_count} {areas_on_border} {areas_in_danger} {most_regions_opponent} {avg_region_distance}\n")
+                f.write(f"{nb_players} {biggest_region_size} {hidden_regions} {area_share} {dice_share} {dice_total} {region_count} {areas_on_border} {areas_in_danger} {most_regions_opponent} {avg_region_distance} {int(on_turn)}\n")
         
         return [nb_players, biggest_region_size, hidden_regions, area_share, dice_share, dice_total, region_count, areas_on_border, areas_in_danger, most_regions_opponent, avg_region_distance]
 
@@ -164,15 +169,15 @@ class AlphaDice:
             new_board = copy.deepcopy(board) # We must copy it so we don't change the original board
             if turn_action == "attack": # If we're gonna attack, simulate the attack first
                 new_board = simulate_attack(new_board, BattleCommand(turn_source.get_name(), turn_target.get_name()))
+                statistics_after = self.get_game_statistics(new_board, nb_turns_this_game + 1)
+            else: # Defending stops our turn
+                statistics_after = self.get_game_statistics(new_board, nb_turns_this_game + 1, on_turn=False)
+            statistics_before = self.get_game_statistics(board, nb_turns_this_game)
+
             new_board, new_dice = self.simulate_game(new_board)
             new_attacks = list(possible_attacks(new_board, self.player_name))
             new_area_size = len(new_board.get_player_areas(self.player_name))
             new_hidden_regions = hidden_region_count(new_board, self.player_name)
-            best_move = self.get_qtable_best_move(new_board, new_attacks)[2]
-            if best_move:
-                max_qvalue_next_move = self.q_table[best_move]
-            else: # If there are no possible moves on next simulated turn, we will probably lose during after this turn
-                max_qvalue_next_move = 0
 
             # Calculate reward
             area_count = len(board.get_player_areas(self.player_name)) 
@@ -195,8 +200,12 @@ class AlphaDice:
             #print(turn_key)
             #print("Reward size: " + str(reward))
             #print("Previous move value: " + str(self.q_table[turn_key]))
-            #print("Best new possible move: " + str(max_qvalue_next_move))
-            self.q_table[turn_key] = self.q_table[turn_key] * self.discount #+ self.learning_rate * reward #+ self.discount * (max_qvalue_next_move - self.q_table[turn_key]))
+            #print(f"Probability to win: before - {self.classifier(tensor(statistics_before)):0.3f}, after - {self.classifier(tensor(statistics_after)):0.3f}")
+
+            probability_before = self.classifier(tensor(statistics_before)).item()
+            probability_after = self.classifier(tensor(statistics_after)).item()
+            approximated_next_turn_qvalue = self.q_table[turn_key] * (1 + probability_after - probability_before) # Multiply current Q-value based on probability difference
+            self.q_table[turn_key] = self.q_table[turn_key] + self.learning_rate * (reward + self.discount * (approximated_next_turn_qvalue - self.q_table[turn_key]))
             self.q_table = give_reward_to_better_turns(self.q_table, reward, self.learning_rate, turn_key, 2, ["very low", "low", "medium", "high"])
             #print("New move value: " + str(self.q_table[turn_key]))
 
@@ -205,11 +214,14 @@ class AlphaDice:
 
         if not attacks or turn_action == "defend" or not turn_source or not turn_target: # Source or target can be null when there are missing records in Q-table
             # Save various game statistics which will be used for dataset creation
-            statistics = self.get_game_statistics(board, nb_turns_this_game, self.update_qtable)
-            print(f"Probability to win: {self.classifier(tensor(statistics))}")
+            if random.uniform(0,1) > DROPOUT_RATE and self.update_qtable and len(board.get_player_areas(self.player_name)) > 0: # If the player is alive
+                statistics = self.get_game_statistics(board, nb_turns_this_game, on_turn=False, save=True)
+                #print(f"Probability to win: {self.classifier(tensor(statistics))}")
             
             return EndTurnCommand()
         else:
+            if random.uniform(0,1) > DROPOUT_RATE and self.update_qtable and len(board.get_player_areas(self.player_name)) > 0: # If the player is alive
+                statistics = self.get_game_statistics(board, nb_turns_this_game, on_turn=True, save=True)
             return BattleCommand(turn_source.get_name(), turn_target.get_name())
 
     def save_training(self):
