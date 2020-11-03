@@ -168,6 +168,8 @@ class AlphaDice:
         if self.update_qtable and turn_key: # Don't update Qtable unless we did a move
             # Before ending our turn, we simulate other players' turns and get Q-value of best move from this simulated board
             new_board = copy.deepcopy(board) # We must copy it so we don't change the original board
+            new_board_no_new_move = copy.deepcopy(board) # For simulation without the new move
+
             if turn_action == "attack": # If we're gonna attack, simulate the attack first
                 new_board = simulate_attack(new_board, BattleCommand(turn_source.get_name(), turn_target.get_name()))
                 statistics_after = self.get_game_statistics(new_board, nb_turns_this_game + 1)
@@ -179,6 +181,11 @@ class AlphaDice:
             new_attacks = list(possible_attacks(new_board, self.player_name))
             new_area_size = len(new_board.get_player_areas(self.player_name))
             new_hidden_regions = hidden_region_count(new_board, self.player_name)
+
+            # Get win probabilities after round simulation
+            statistics_after_simulation_with_move = self.get_game_statistics(new_board, nb_turns_this_game + 1) # Simulation with new move was already done
+            new_board_no_new_move, _ = self.simulate_game(new_board_no_new_move)
+            statistics_after_simulation_no_move = self.get_game_statistics(new_board_no_new_move, nb_turns_this_game + 1) # Simulation with new move
 
             # Calculate reward
             area_count = len(board.get_player_areas(self.player_name)) 
@@ -203,10 +210,20 @@ class AlphaDice:
             #print("Previous move value: " + str(self.q_table[turn_key]))
             #print(f"Probability to win: before - {self.classifier(tensor(statistics_before)):0.3f}, after - {self.classifier(tensor(statistics_after)):0.3f}")
 
+            # Change Q-value based on immediate winrate change effect
             probability_before = self.classifier(tensor(statistics_before)).item()
             probability_after = self.classifier(tensor(statistics_after)).item()
             approximated_next_turn_qvalue = self.q_table[turn_key] * (1 + probability_after - probability_before) # Multiply current Q-value based on probability difference
-            self.q_table[turn_key] = self.q_table[turn_key] + self.learning_rate * (reward + self.discount * (approximated_next_turn_qvalue - self.q_table[turn_key]))
+            
+            # Change Q-value based on winrate difference after simulated round with or without new attack (we don't value this as much as immediate effect)
+            probability_with_move = self.classifier(tensor(statistics_after_simulation_with_move)).item()
+            probability_without_move = self.classifier(tensor(statistics_after_simulation_no_move)).item()
+            approximated_simulated_turn_qvalue = self.q_table[turn_key] * (1 + 0.20 * (probability_with_move - probability_without_move))
+
+            # Calculate the total new approximated Q-value as weighted average
+            approximated_qvalue = approximated_next_turn_qvalue * 0.75 + approximated_simulated_turn_qvalue * 0.25
+            
+            self.q_table[turn_key] = self.q_table[turn_key] + self.learning_rate * (reward + self.discount * (approximated_qvalue - self.q_table[turn_key]))
             self.q_table = give_reward_to_better_turns(self.q_table, reward, self.learning_rate, turn_key, 2, ["very low", "low", "medium", "high"])
             #print("New move value: " + str(self.q_table[turn_key]))
 
