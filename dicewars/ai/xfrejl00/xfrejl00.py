@@ -16,6 +16,7 @@ from dicewars.ai.xfrejl00.utils import *
 from dicewars.ai.xfrejl00.classifier import LogisticRegressionMultiFeature
 
 DROPOUT_RATE = 0.9 # How many dataset inputs will get dropped
+NB_FEATURES = 11 # Number of classifier features
 
 class AlphaDice:
     def __init__(self, player_name, board, players_order):
@@ -33,8 +34,8 @@ class AlphaDice:
         self.logger.info("Current time: " + datetime.now().strftime('%Y.%m.%d %H:%M:%S'))
 
         self.q_table = QTable(states_count=5, action_count=1, qvalue_check=True)
-        self.classifier = LogisticRegressionMultiFeature(11)
-        self.classifier.load_state_dict(load("dicewars/ai/xfrejl00/classifier_model.pt"))
+        self.classifier = LogisticRegressionMultiFeature(NB_FEATURES)
+        self.classifier.load_state_dict(load(f"dicewars/ai/xfrejl00/classifier_model_{NB_FEATURES}.pt"))
         self.classifier.eval()
 
         if os.path.isfile(self.snapshot_path + "snapshot.pickle"): # Snapshot already exists
