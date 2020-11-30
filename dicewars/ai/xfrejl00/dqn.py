@@ -66,7 +66,7 @@ class LogisticRegressionMultiFeature(Module):
 def train_model(nb_features, nb_epochs, lr, batch_size, train_dataset, val_dataset, load_model=False):
     model = LogisticRegressionMultiFeature(nb_features, lr)
     if load_model:
-        model.load_state_dict(load(f"dicewars/ai/xfrejl00/classifier_model_{nb_features}.pt"))
+        model.load_state_dict(load(f"dicewars/ai/xfrejl00/dqn_model_{nb_features}.pt"))
 
     best_model = copy.deepcopy(model)
     losses = []
@@ -84,7 +84,7 @@ def train_model(nb_features, nb_epochs, lr, batch_size, train_dataset, val_datas
             model.max_accuracy = parameter.Parameter(tensor(accuracy), requires_grad=False)
             best_model = copy.deepcopy(model)
             epoch_max = epoch
-            
+
         print(f"Epoch {epoch}/{nb_epochs}: loss - {avg_loss:0.4f}, validation accuracy: {accuracy:0.4f}")
         accuracies.append(accuracy)
         losses.append(avg_loss)
@@ -95,18 +95,18 @@ def train():
     parser.add_argument("--load_model", dest="load_model", action="store_true", default=False, help="Select whether model snapshot will be loaded.")
     args = parser.parse_args()
 
-    max_epochs = 5000
-    nb_features = 22
+    max_epochs = 500
+    nb_features = 10 # 5 states, reward, winrate prediction, board states, custom stats
     learning_rate = 0.001
     batch_size = 16
-    
-    train_dataset = Dataset("dicewars/ai/xfrejl00/positives.trn", "dicewars/ai/xfrejl00/negatives.trn", cols=np.arange(0, nb_features)) 
-    val_dataset = Dataset("dicewars/ai/xfrejl00/positives.val", "dicewars/ai/xfrejl00/negatives.val", cols=np.arange(0, nb_features))
+
+    train_dataset = Dataset("dicewars/ai/xfrejl00/positives_dqn.trn", "dicewars/ai/xfrejl00/negatives_dqn.trn", cols=np.arange(0, nb_features)) 
+    val_dataset = Dataset("dicewars/ai/xfrejl00/positives_dqn.val", "dicewars/ai/xfrejl00/negatives_dqn.val", cols=np.arange(0, nb_features))
 
     model_multi_fea, losses, accuracies = train_model(nb_features, max_epochs, learning_rate, batch_size, train_dataset, val_dataset, args.load_model)
     print(f"Best model accuracy: {model_multi_fea.max_accuracy.double():0.4f}")
 
-    save(model_multi_fea.state_dict(), f"dicewars/ai/xfrejl00/classifier_model_{nb_features}.pt")
+    save(model_multi_fea.state_dict(), f"dicewars/ai/xfrejl00/dqn_model_{nb_features}.pt")
 
     import matplotlib.pyplot as plt
     plt.ylabel("Loss value")
