@@ -16,7 +16,7 @@ from dicewars.ai.xfrejl00.utils import *
 from dicewars.ai.xfrejl00.classifier import LogisticRegressionMultiFeature as Classifier
 from dicewars.ai.xfrejl00.dqn import LogisticRegressionMultiFeature as DQNetwork
 
-DROPOUT_RATE = 0.9 # How many dataset inputs will get dropped
+DROPOUT_RATE = 0 # How many dataset inputs will get dropped
 NB_FEATURES_CLASSIFIER = 22 # Number of classifier features
 NB_FEATURES_DQN = 10 # 5 states, board states, custom stats
 USE_DQN = False
@@ -243,7 +243,7 @@ class AlphaDice:
             # Calculate the total new approximated Q-value as weighted average
             approximated_qvalue = approximated_next_turn_qvalue * 0.75 + approximated_simulated_turn_qvalue * 0.25
             
-            # Save the moves to for DQN dataset:
+            # Save the moves for DQN dataset:
             if random.uniform(0,1) > DROPOUT_RATE:
                 if turn_action == "attack": # Generate stats for current board
                     self.stats.get_game_statistics(board, on_turn=True)
