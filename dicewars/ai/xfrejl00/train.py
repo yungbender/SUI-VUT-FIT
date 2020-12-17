@@ -399,7 +399,8 @@ def train(match_count=5000,
             for move in played_moves: # Give reward to all played moves in last game
                 # Bellman equation (for non-immediate rewards)
                 q_table[move] = q_table[move] * discount #+ learning_rate * reward
-                q_table = give_reward_to_better_turns(q_table, reward, learning_rate, move, 2, ["very low", "low", "medium", "high"])
+                if move[0][0] != "defend":
+                    q_table = give_reward_to_better_turns(q_table, reward, learning_rate, move, 2, ["very low", "low", "medium", "high"])
                 reward *= 1 - 1 / len(played_moves) # Value end-game moves more than early game moves
 
             # Create and save winrate graphs, snapshot backup

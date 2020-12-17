@@ -38,7 +38,7 @@ class AlphaDice:
         self.logger = logging.getLogger('AI')
         self.logger.info("Current time: " + datetime.now().strftime('%Y.%m.%d %H:%M:%S'))
 
-        self.q_table = QTable(states_count=5, action_count=1, qvalue_check=True)
+        self.q_table = QTable(states_count=5, action_count=1, qvalue_check=False)
         self.classifier = Classifier(NB_FEATURES_CLASSIFIER)
         self.classifier.load_state_dict(load(self.snapshot_path + f"classifier_model_{NB_FEATURES_CLASSIFIER}.pt"))
         self.classifier.eval()
@@ -50,6 +50,8 @@ class AlphaDice:
 
         if os.path.isfile(self.snapshot_path + "snapshot.pickle"): # Snapshot already exists
             self.q_table = self.q_table.load(self.snapshot_path + "snapshot.pickle")
+        else:
+            self.q_table[(("defend","defend", "defend", "defend", "defend"), ("defend"))] = 0
 
         self.logger.info(f"Epsilon: {self.epsilon}, Learning rate: {self.learning_rate}, Discount: {self.discount}, Train? {self.update_qtable}")
 
@@ -62,12 +64,18 @@ class AlphaDice:
             data.write(" ".join(str(item) for item in key) + "\n")
 
     def get_dqtable_key(self, board, source, target, action, winrate_change=0, reward=0, save=False):
-        qtable_key = self.get_qtable_key(board, source, target, action, classes=False)
+        if action == "defend":
+            qtable_key = self.get_qtable_key(0, 0, 0, 0, defend=True, classes=False)
+        else:    
+            qtable_key = self.get_qtable_key(board, source, target, action, classes=False)
         dqtable_key = [list(x) for x in qtable_key] # Convert tuple of tuples to list of lists
         dqtable_key = [y for x in dqtable_key for y in x] # Flatten the list
 
         # Add our additional DQN stats to state
-        additional_stats = [self.stats.rounds_without_move, target.get_dice(), self.stats.nb_players, self.stats.dice_per_area]#, winrate_change, self.stats.biggest_region_size, self.stats.area_share, self.stats.dice_share] 
+        if action == "defend":
+            additional_stats = [self.stats.rounds_without_move, -1, self.stats.nb_players, self.stats.dice_per_area]#, winrate_change, self.stats.biggest_region_size, self.stats.area_share, self.stats.dice_share] 
+        else:
+            additional_stats = [self.stats.rounds_without_move, target.get_dice(), self.stats.nb_players, self.stats.dice_per_area]#, winrate_change, self.stats.biggest_region_size, self.stats.area_share, self.stats.dice_share] 
         
         dqtable_key = dqtable_key + additional_stats
         assert(len(dqtable_key) == NB_FEATURES_DQN) # Check if the stat count is correct 
@@ -77,13 +85,17 @@ class AlphaDice:
         
         return dqtable_key
 
-    def get_qtable_key(self, board, source, target, action, classes=True):
+    def get_qtable_key(self, board, source, target, action, classes=True, defend=False):
+        if defend and classes:
+            return (("defend","defend", "defend", "defend", "defend"), ("defend"))
+            
         # Get the individual states and action
-        success_probability = probability_of_successful_attack(board, source.get_name(), target.get_name())
-        hold_probability = probability_of_holding_area(board, target.get_name(), source.get_dice() - 1, self.player_name)
-        region_gain = region_size_potential_gain(board, source.get_name(), target, self.player_name)
-        region_destroy = region_size_potential_destroy(board, source, target, self.player_name)
-        neighbor_count = neighboring_field_count(board, target)
+        if not defend:
+            success_probability = probability_of_successful_attack(board, source.get_name(), target.get_name())
+            hold_probability = probability_of_holding_area(board, target.get_name(), source.get_dice() - 1, self.player_name)
+            region_gain = region_size_potential_gain(board, source.get_name(), target, self.player_name)
+            region_destroy = region_size_potential_destroy(board, source, target, self.player_name)
+            neighbor_count = neighboring_field_count(board, target)
 
         if classes: # Transform the probability into class probability (very low, low, medium, high, very high)
             success_probability = convert_probability_to_classes(success_probability)
@@ -96,6 +108,11 @@ class AlphaDice:
                 action = 1
             else:
                 action = 0
+            success_probability = -1
+            hold_probability = -1
+            region_gain = -1
+            region_destroy = -1
+            neighbor_count = -1
 
         return ((success_probability, hold_probability, region_gain, region_destroy, neighbor_count), (action, ))
 
@@ -108,32 +125,38 @@ class AlphaDice:
         if not enemy_simulation: # We don't need stats when simulating enemies
             self.stats.get_game_statistics(board) # Generate current statistics
 
-        # If we've played more than enough rounds without attack, we force attack, to not lose game by not submitting moves for 8 rounds
-        if (self.stats.rounds_without_move < 7 and self.stats.dice_per_area < 8) or enemy_simulation:
-            actions = ["attack", "defend"]
-        else:
-            actions = ["attack"]
-
         for source, target in attacks:
-            for action in actions:
-                key = self.get_qtable_key(board, source, target, action)
-                if USE_DQN or key in self.q_table:
-                    if USE_DQN and not enemy_simulation: # Get Q-value either from neural network or Q-table
-                        dql_key = self.get_dqtable_key(board, source, target, action)
-                        qvalue = self.dqn(tensor(dql_key)).item()
+            key = self.get_qtable_key(board, source, target, "attack")
+            if USE_DQN or key in self.q_table:
+                if USE_DQN and not enemy_simulation: # Get Q-value either from neural network or Q-table
+                    dql_key = self.get_dqtable_key(board, source, target, action)
+                    qvalue = self.dqn(tensor(dql_key)).item()
+                else:
+                    if key in self.q_table:
+                        qvalue = self.q_table[key]
                     else:
-                        if key in self.q_table:
-                            qvalue = self.q_table[key]
-                        else:
-                            qvalue = self.q_table[key] = 0
+                        qvalue = self.q_table[key] = 0
 
-                    if qvalue > qvalue_max:
-                        qvalue_max = qvalue
-                        [turn_source, turn_target] = [source, target]
-                        turn_key = key
-                        if USE_DQN and turn_key not in self.q_table: # We'll be also initializing regular Q-table when using Deep Q-learning
-                            self.q_table[turn_key] = 0
-                        turn_action = action
+                if qvalue > qvalue_max:
+                    qvalue_max = qvalue
+                    [turn_source, turn_target] = [source, target]
+                    turn_key = key
+                    if USE_DQN and turn_key not in self.q_table: # We'll be also initializing regular Q-table when using Deep Q-learning
+                        self.q_table[turn_key] = 0
+                    turn_action = "attack"
+            
+        # If we've played more than enough rounds without attack, we force attack, to not lose game by not submitting moves for 8 rounds
+        if not (self.stats.rounds_without_move < 7 and self.stats.dice_per_area < 8) or enemy_simulation:
+            defend_key = self.get_qtable_key(0, 0, 0, 0, defend=True, classes=True)
+            if defend_key not in self.q_table:
+                self.q_table[defend_key] = 0
+                
+            if self.q_table[defend_key] > qvalue_max:
+                turn_action = "defend"
+                turn_key = defend_key
+                turn_source = "defend"
+                turn_target = "defend"
+
         return turn_source, turn_target, turn_key, turn_action
 
     def simulate_enemy_turns(self, board, players):
@@ -184,8 +207,9 @@ class AlphaDice:
                 dice_per_area = board.get_player_dice(self.player_name) / len(board.get_player_areas(self.player_name))
                 if random.uniform(0,1) < 1 / (len(attacks) + 1) and self.stats.rounds_without_move < 7 and turn_source.get_dice() < 8 and dice_per_area < 8: # Chance to defend = 1 / (number of possible attacks + 1) 
                     turn_action = "defend"
+                    turn_key = self.get_qtable_key(0, 0, 0, 0, defend=True, classes=True)
                 
-                if self.update_qtable:
+                if self.update_qtable and turn_action != "defend":
                     turn_key = self.get_qtable_key(board, turn_source, turn_target, turn_action)
                     if turn_key not in self.q_table:
                         self.q_table[turn_key] = 0
@@ -221,7 +245,8 @@ class AlphaDice:
             reward = (new_dice - region_size) * 0.25 # We compare dice count at round end to current biggest region size
             reward += (new_area_size - area_count) * 0.05 # Region size is more important
             reward += (new_hidden_regions - hidden_regions) * 0.25
-            reward = calculate_risk_reward_bonus(turn_key, reward)
+            if turn_key != "defend":
+                reward = calculate_risk_reward_bonus(turn_key, reward)
 
             # Bellman equation for new Q-table value calculation
             #print("Move: ")
@@ -254,7 +279,8 @@ class AlphaDice:
                 self.get_dqtable_key(board, turn_source, turn_target, turn_action, save=True, winrate_change=winrate_change, reward=reward)
 
             self.q_table[turn_key] = self.q_table[turn_key] + self.learning_rate * (reward + self.discount * approximated_qvalue - self.q_table[turn_key])
-            self.q_table = give_reward_to_better_turns(self.q_table, reward, self.learning_rate, turn_key, 2, ["very low", "low", "medium", "high"])
+            if turn_action != "defend":
+                self.q_table = give_reward_to_better_turns(self.q_table, reward, self.learning_rate, turn_key, 2, ["very low", "low", "medium", "high"])
             #print("New move value: " + str(self.q_table[turn_key]))
 
             # Save the move to the list of played moves
