@@ -26,12 +26,12 @@ ai_list = ["dt.ste", "dt.sdc", "dt.stei", "dt.wpm_c", "dt.wpm_d", "dt.wpm_s", "x
 ai_val = ["dt.rand", "dt.ste", "dt.sdc", "dt.wpm_c", "xlogin00"]
 SIGINT_CALLED = False
 
-REPLAY_MEMORY_MAX = 20000
-REPLAY_MEMORY_MIN = 1024
+REPLAY_MEMORY_MAX = 100000
+REPLAY_MEMORY_MIN = 4096
 NB_FEATURES_CLASSIFIER = 22 # Number of classifier features
 NB_FEATURES_DQN = 10 # 5 states, board states, custom stats
-USE_DQN = True
-BATCH_SIZE = 512
+USE_DQN = False
+BATCH_SIZE = 2048
 LEARNING_RATE = 0.001
 
 class TrainExc(Exception):
