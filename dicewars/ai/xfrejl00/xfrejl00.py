@@ -125,7 +125,8 @@ class AlphaDice:
                         if key in self.q_table:
                             qvalue = self.q_table[key]
                         else:
-                            qvalue = self.q_table[key] = 0
+                            qvalue = 0
+                            self.q_table[key] = 0
 
                     if qvalue > qvalue_max:
                         qvalue_max = qvalue
@@ -244,21 +245,38 @@ class AlphaDice:
             approximated_qvalue = approximated_next_turn_qvalue * 0.75 + approximated_simulated_turn_qvalue * 0.25
             
             # Save the moves to for DQN dataset:
-            if random.uniform(0,1) > DROPOUT_RATE:
-                if turn_action == "attack": # Generate stats for current board
-                    self.stats.get_game_statistics(board, on_turn=True)
-                else:
-                    self.stats.get_game_statistics(board, on_turn=False)
+            if turn_action == "attack": # Generate stats for current board
+                self.stats.get_game_statistics(board, on_turn=True)
+            else:
+                self.stats.get_game_statistics(board, on_turn=False)
+            winrate_change = (probability_after - probability_before) * 0.75 + (probability_with_move - probability_without_move) * 0.25
+            
+            if turn_action == "defend":
+                for source, target in attacks:
+                    turn_key = self.get_qtable_key(board, source, target, "defend")
+                    if turn_key not in self.q_table:
+                        self.q_table[turn_key] = 0
+                        
+                    if random.uniform(0,1) > DROPOUT_RATE:
+                        self.get_dqtable_key(board, turn_source, turn_target, turn_action, save=True, winrate_change=winrate_change, reward=reward)
 
-                winrate_change = (probability_after - probability_before) * 0.75 + (probability_with_move - probability_without_move) * 0.25
-                self.get_dqtable_key(board, turn_source, turn_target, turn_action, save=True, winrate_change=winrate_change, reward=reward)
+                    approximated_simulated_turn_qvalue = self.q_table[turn_key] * (1 + 0.20 * (probability_with_move - probability_without_move))
+                    approximated_qvalue = approximated_next_turn_qvalue * 0.75 + approximated_simulated_turn_qvalue * 0.25
 
-            self.q_table[turn_key] = self.q_table[turn_key] + self.learning_rate * (reward + self.discount * approximated_qvalue - self.q_table[turn_key])
-            self.q_table = give_reward_to_better_turns(self.q_table, reward, self.learning_rate, turn_key, 2, ["very low", "low", "medium", "high"])
-            #print("New move value: " + str(self.q_table[turn_key]))
+                    self.q_table[turn_key] = self.q_table[turn_key] + self.learning_rate * (reward + self.discount * approximated_qvalue - self.q_table[turn_key])
+                    self.q_table = give_reward_to_better_turns(self.q_table, reward, self.learning_rate, turn_key, 2, ["very low", "low", "medium", "high"])
+                    
+                    # Save the move to the list of played moves
+                    save_move_to_file(turn_key, self.moves_path)
+            else:
+                if random.uniform(0,1) > DROPOUT_RATE:
+                    self.get_dqtable_key(board, turn_source, turn_target, turn_action, save=True, winrate_change=winrate_change, reward=reward)
 
-            # Save the move to the list of played moves
-            save_move_to_file(turn_key, self.moves_path)
+                self.q_table[turn_key] = self.q_table[turn_key] + self.learning_rate * (reward + self.discount * approximated_qvalue - self.q_table[turn_key])
+                self.q_table = give_reward_to_better_turns(self.q_table, reward, self.learning_rate, turn_key, 2, ["very low", "low", "medium", "high"])
+                
+                # Save the move to the list of played moves
+                save_move_to_file(turn_key, self.moves_path)
 
         if not attacks or turn_action == "defend" or not turn_source or not turn_target: # Source or target can be null when there are missing records in Q-table
             # Save various game statistics which will be used for dataset creation
