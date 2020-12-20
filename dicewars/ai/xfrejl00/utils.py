@@ -374,3 +374,17 @@ def turns_until_end_of_round(player_name, players_order):
     idx = players_order.index(player_name)
     
     return len(players_order) - 1 - idx
+
+# How much will biggest region shrink if we lose the source area
+def region_size_put_at_risk(board, source, target, player_name):
+    prev_region_size = len(max(board.get_players_regions(player_name), key=len))
+
+    # Temporarily take the area from player
+    source.set_owner(target.get_owner_name())
+
+    new_region_size = len(max(board.get_players_regions(player_name), key=len))
+
+    # Return the area to original owner
+    source.set_owner(player_name)
+
+    return prev_region_size - new_region_size

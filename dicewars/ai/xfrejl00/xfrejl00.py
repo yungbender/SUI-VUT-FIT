@@ -18,7 +18,7 @@ from dicewars.ai.xfrejl00.dqn import LogisticRegressionMultiFeature as DQNetwork
 
 DROPOUT_RATE = 0 # How many dataset inputs will get dropped
 NB_FEATURES_CLASSIFIER = 22 # Number of classifier features
-NB_FEATURES_DQN = 10 # 5 states, board states, custom stats
+NB_FEATURES_DQN = 11 # 6 states, board states, custom stats
 USE_DQN = False
 
 class AlphaDice:
@@ -84,6 +84,7 @@ class AlphaDice:
         region_gain = region_size_potential_gain(board, source.get_name(), target, self.player_name)
         region_destroy = region_size_potential_destroy(board, source, target, self.player_name)
         neighbor_count = neighboring_field_count(board, target)
+        regions_at_risk = region_size_put_at_risk(board, source, target, self.player_name)
 
         if classes: # Transform the probability into class probability (very low, low, medium, high, very high)
             success_probability = convert_probability_to_classes(success_probability)
@@ -91,13 +92,14 @@ class AlphaDice:
             region_gain = convert_region_difference_to_classes(region_gain)
             region_destroy = convert_region_difference_to_classes(region_destroy)
             neighbor_count = convert_neighbor_count_to_classes(neighbor_count)
+            regions_at_risk = convert_region_difference_to_classes(regions_at_risk)
         else: # Convert action to number instead of string to match dtype of other stats
             if action == "attack":
                 action = 1
             else:
                 action = 0
 
-        return ((success_probability, hold_probability, region_gain, region_destroy, neighbor_count), (action, ))
+        return ((success_probability, hold_probability, region_gain, region_destroy, neighbor_count, regions_at_risk), (action, ))
 
     def get_qtable_best_move(self, board, attacks, enemy_simulation):
         turn_source = None
