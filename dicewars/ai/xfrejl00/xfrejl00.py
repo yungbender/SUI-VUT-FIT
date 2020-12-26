@@ -235,15 +235,24 @@ class AlphaDice:
             # Change Q-value based on immediate winrate change effect
             probability_before = self.classifier(tensor(statistics_before)).item()
             probability_after = self.classifier(tensor(statistics_after)).item()
-            approximated_next_turn_qvalue = self.q_table[turn_key] * (1 + probability_after - probability_before) # Multiply current Q-value based on probability difference
-            
+            if self.q_table[turn_key] > 0:
+                # Multiply current Q-value based on probability difference
+                # Final Q-value will be from range <Q-value*0.5; Q-value*1.5>
+                approximated_next_turn_qvalue = self.q_table[turn_key] + 0.5 * self.q_table[turn_key] * (probability_after - probability_before) 
+            else: 
+                # We must change the equation for negative numbers for it to work correctly
+                approximated_next_turn_qvalue = self.q_table[turn_key] - 0.5 * self.q_table[turn_key] * (probability_after - probability_before) 
+
             # Change Q-value based on winrate difference after simulated round with or without new attack (we don't value this as much as immediate effect)
             probability_with_move = self.classifier(tensor(statistics_after_simulation_with_move)).item()
             probability_without_move = self.classifier(tensor(statistics_after_simulation_no_move)).item()
-            approximated_simulated_turn_qvalue = self.q_table[turn_key] * (1 + 0.20 * (probability_with_move - probability_without_move))
+            if self.q_table[turn_key] > 0:
+                approximated_simulated_turn_qvalue = self.q_table[turn_key] + 0.5 * self.q_table[turn_key] * (probability_with_move - probability_without_move)
+            else:
+                approximated_simulated_turn_qvalue = self.q_table[turn_key] - 0.5 * self.q_table[turn_key] * (probability_with_move - probability_without_move)
 
             # Calculate the total new approximated Q-value as weighted average
-            approximated_qvalue = approximated_next_turn_qvalue * 0.75 + approximated_simulated_turn_qvalue * 0.25
+            approximated_qvalue = approximated_next_turn_qvalue * 0.9 + approximated_simulated_turn_qvalue * 0.1
             
             # Save the moves for DQN dataset:
             if random.uniform(0,1) > DROPOUT_RATE:

@@ -98,7 +98,7 @@ def train():
     max_epochs = 5000
     nb_features = 22
     learning_rate = 0.001
-    batch_size = 16
+    batch_size = 4096
     
     train_dataset = Dataset("dicewars/ai/xfrejl00/positives.trn", "dicewars/ai/xfrejl00/negatives.trn", cols=np.arange(0, nb_features)) 
     val_dataset = Dataset("dicewars/ai/xfrejl00/positives.val", "dicewars/ai/xfrejl00/negatives.val", cols=np.arange(0, nb_features))
