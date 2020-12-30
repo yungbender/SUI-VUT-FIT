@@ -56,6 +56,7 @@ class AI:
 
         self.q_table = QTablePickle(states_count=3, action_count=1, qvalue_check=True)
         self.q_table = self.q_table.load(self.snapshot_path)
+        self.rounds_without_move = 0
 
     def get_qtable_key(self, board, source, target, action):
         # Get the individual states
@@ -75,8 +76,15 @@ class AI:
         turn_key = None
         turn_action = None
         qvalue_max = float('-inf') # Default value is infinity because we want to always take the first possible move, no matter the Q-value
+        
+        # If we've played more than enough rounds without attack, we force attack, to not lose game by not submitting moves for 8 rounds
+        if self.rounds_without_move < 7:
+            actions = ["attack", "defend"]
+        else:
+            actions = ["attack"]
+        
         for source, target in attacks:
-            for action in ["attack", "defend"]:
+            for action in actions:
                 key = self.get_qtable_key(board, source, target, action)
                 if key in self.q_table:
                     if self.q_table[key] > qvalue_max:
@@ -93,6 +101,8 @@ class AI:
             turn_source, turn_target, turn_key, turn_action = self.get_qtable_best_move(board, attacks)
 
         if not attacks or turn_action == "defend" or not turn_source or not turn_target: # Source or target can be null when there are missing records in Q-table
+            self.rounds_without_move += 1
             return EndTurnCommand()
         else:
+            self.rounds_without_move = 0
             return BattleCommand(turn_source.get_name(), turn_target.get_name())

@@ -2,8 +2,88 @@ from dicewars.client.game.board import Board
 from dicewars.client.ai_driver import BattleCommand, EndTurnCommand
 from dicewars.ai.utils import probability_of_successful_attack
 from itertools import combinations
+import numpy as np
 import random
 import shelve
+
+
+class GameStats():
+    def __init__(self, player_name, players_order, snapshot_path):
+        self.player_name = player_name
+        self.players_order = players_order
+        self.snapshot_path = snapshot_path
+        self.rounds_without_move = 0
+        self.board_stats = []
+
+    def get_game_statistics(self, board, on_turn=True, save=False):
+        total_dice_count = 0
+        for i in self.players_order:
+            total_dice_count += board.get_player_dice(i)
+        
+        # Number of remaining players
+        self.nb_players = board.nb_players_alive()
+
+        # Biggest region size
+        self.biggest_region_size = len(max(board.get_players_regions(self.player_name), key=len))
+
+        # Hidden region count
+        self.hidden_regions = hidden_region_count(board, self.player_name)
+
+        # Total share of board owned
+        self.area_share = len(board.get_player_areas(self.player_name)) / len(board.areas)
+
+        # Total share of dice owned
+        self.dice_share = board.get_player_dice(self.player_name) / total_dice_count
+
+        # Total dice count
+        self.dice_total = board.get_player_dice(self.player_name)
+
+        # Region count
+        self.region_count = len(board.get_players_regions(self.player_name))
+
+        if len(board.get_player_areas(self.player_name)) > 0: # Player is alive
+            # Average dice per area
+            self.dice_per_area = board.get_player_dice(self.player_name) / len(board.get_player_areas(self.player_name))
+
+            # Total share of areas on border
+            self.areas_on_border = len(board.get_player_border(self.player_name)) / len(board.get_player_areas(self.player_name))
+
+            # Total share of areas in danger
+            self.areas_in_danger = len(get_areas_in_danger(board, self.player_name)) / len(board.get_player_areas(self.player_name)) 
+        else:
+            self.areas_in_danger = self.areas_on_border = self.dice_per_area = 0
+        
+        # Size of biggest region size of opponent
+        self.most_regions_opponent = get_most_opponent_regions(board, self.player_name, self.players_order)
+
+        # Average distance between player areas
+        self.avg_region_distance = average_region_distance(board, self.player_name)
+
+        # Number of players ahead of player
+        if on_turn:
+            self.players_ahead = 0
+        else:
+            self.players_ahead = board.nb_players_alive() - 1
+        
+        # How many players play after us before dice are distributed
+        self.turns_until_dice = turns_until_end_of_round(self.player_name, self.players_order)
+
+        # Get enemy state [region_size, area_count, dice_count] of individual enemies, sorted by region_size
+        self.enemy_state = get_enemy_state(board, self.player_name, self.players_order)
+
+        if save:
+            with open(self.snapshot_path + "classifier/statistics.txt", "a+") as f:
+                f.write(f"{self.nb_players} {self.biggest_region_size} {self.hidden_regions} {self.area_share} {self.dice_share} {self.dice_total} {self.region_count} {self.dice_per_area} {self.areas_on_border} {self.areas_in_danger} {self.avg_region_distance} {self.players_ahead} {self.turns_until_dice} ")
+                for i in range(len(self.players_order) - 1):
+                    f.write(f"{self.enemy_state[0][i]} {self.enemy_state[1][i]} {self.enemy_state[2][i]} ")
+                f.write(f"\n")
+
+        self.board_stats = [self.nb_players, self.biggest_region_size, self.hidden_regions, self.area_share, self.dice_share, self.dice_total, 
+        self.region_count, self.dice_per_area, self.areas_on_border, self.areas_in_danger, self.avg_region_distance, self.players_ahead, self.turns_until_dice,
+        self.enemy_state[0][0], self.enemy_state[1][0], self.enemy_state[2][0], self.enemy_state[0][1], self.enemy_state[1][1], self.enemy_state[2][1], self.enemy_state[0][2], self.enemy_state[1][2], self.enemy_state[2][2]]
+
+        return self.board_stats
+
 
 def convert_probability_to_classes(probability): # Converts float to one of: ["very low", "low", "medium", "high", "very high"]
     if probability < 0.15:
@@ -12,7 +92,7 @@ def convert_probability_to_classes(probability): # Converts float to one of: ["v
         return "low"
     elif probability < 0.65:
         return "medium"
-    else: #if probability < 0.9:
+    else:
         return "high"
 
 def convert_region_difference_to_classes(difference):
@@ -74,6 +154,12 @@ def save_parameters(snapshot_path, lr, epsilon, discount):
     with shelve.open(snapshot_path + "config.pickle", "c") as f:
         f["parameters"] = [lr, epsilon, discount]
 
+def save_move_to_file(key, moves_path):
+    with shelve.open(moves_path, "c", writeback=True) as f:
+        if "moves" not in f:
+            f["moves"] = []
+        f["moves"].append(key)
+
 def simulate_attack(board, turn):
     # Simulate whether attack succeeded
     source_area = board.get_area(turn.source_name)
@@ -130,11 +216,9 @@ def give_reward_to_better_turns(q_table, reward, learning_rate, key, state, clas
 
             if state < 3:
                 q_table = give_reward_to_better_turns(q_table, reward + reward_multiplier, learning_rate, key, 3, ["very low", "low", "medium", "high"], start=False)
-            #if state < 4:
-            #    q_table = give_reward_to_better_turns(q_table, reward + reward_multiplier, learning_rate, key, 4, ["many", "two", "one"], start=False)
     return q_table
 
-def calculate_risk_reward_multiplier(key, reward): # Add reward based on riskiness of moves
+def calculate_risk_reward_bonus(key, reward): # Add reward based on riskiness of moves
     if key[1][0] == "attack":
         # Chance of winning
         if key[0][0] == "very low":
@@ -253,3 +337,52 @@ def average_region_distance(board, player_name):
         return 0
     else:
         return total_distance_between_regions / len(region_combinations)
+
+def get_enemy_state(board, player_name, players_order):
+    region_size = np.array([], dtype=int)
+    area_count = np.array([], dtype=int)
+    dice_count = np.array([], dtype=int)
+
+    for player in players_order:
+        if player != player_name:
+            region_size = np.append(region_size, len(max(board.get_players_regions(player), key=len)))
+            area_count = np.append(area_count, len(board.get_player_areas(player)))
+            dice_count = np.append(dice_count, board.get_player_dice(player))
+    
+    for i in range(len(players_order) - 1, 8): # Fill up the rest of arrays with zeroes
+        region_size = np.append(region_size, 0)
+        area_count = np.append(area_count, 0)
+        dice_count = np.append(dice_count, 0)
+    
+    # Approximate who has currently the best chance to win based on these 3 factors
+    sort_array = region_size / dice_count * area_count
+    sort_array = np.nan_to_num(sort_array) # Convert nan to zero
+
+    # Get indexes required to make previous lists sorted based on this approximated array
+    sort_index = np.flip(np.argsort(sort_array)) # Flip it so we get it in descending order
+
+    # Sort all arrays and convert them to python lists
+    region_size = region_size[sort_index].tolist()
+    area_count = area_count[sort_index].tolist()
+    dice_count = dice_count[sort_index].tolist()
+
+    return [region_size, area_count, dice_count]
+
+def turns_until_end_of_round(player_name, players_order):
+    idx = players_order.index(player_name)
+    
+    return len(players_order) - 1 - idx
+
+# How much will biggest region shrink if we lose the source area
+def region_size_put_at_risk(board, source, target, player_name):
+    prev_region_size = len(max(board.get_players_regions(player_name), key=len))
+
+    # Temporarily take the area from player
+    source.set_owner(target.get_owner_name())
+
+    new_region_size = len(max(board.get_players_regions(player_name), key=len))
+
+    # Return the area to original owner
+    source.set_owner(player_name)
+
+    return prev_region_size - new_region_size
