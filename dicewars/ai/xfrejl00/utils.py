@@ -216,8 +216,6 @@ def give_reward_to_better_turns(q_table, reward, learning_rate, key, state, clas
 
             if state < 3:
                 q_table = give_reward_to_better_turns(q_table, reward + reward_multiplier, learning_rate, key, 3, ["very low", "low", "medium", "high"], start=False)
-            #if state < 4:
-            #    q_table = give_reward_to_better_turns(q_table, reward + reward_multiplier, learning_rate, key, 4, ["many", "two", "one"], start=False)
     return q_table
 
 def calculate_risk_reward_bonus(key, reward): # Add reward based on riskiness of moves

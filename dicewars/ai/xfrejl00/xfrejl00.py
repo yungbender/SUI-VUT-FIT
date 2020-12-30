@@ -18,7 +18,7 @@ from dicewars.ai.xfrejl00.dqn import LogisticRegressionMultiFeature as DQNetwork
 
 DROPOUT_RATE = 0 # How many dataset inputs will get dropped
 NB_FEATURES_CLASSIFIER = 22 # Number of classifier features
-NB_FEATURES_DQN = 11 # 6 states, board states, custom stats
+NB_FEATURES_DQN = 7 # 6 states, board states, custom stats
 USE_DQN = False
 
 class AlphaDice:
@@ -57,9 +57,12 @@ class AlphaDice:
             with shelve.open(self.moves_path, "n") as f:
                 f["moves"] = []
 
-    def save_dqtable_key(self, key):
+    def save_dqtable_key(self, key, winrate_change):
         with open(self.snapshot_path + "dqn/statistics_raw.txt", "a+") as data:
             data.write(" ".join(str(item) for item in key) + "\n")
+
+        with open(self.snapshot_path + "dqn/labels_raw.txt", "a+") as labels:
+            labels.write(str(winrate_change) + "\n")
 
     def get_dqtable_key(self, board, source, target, action, winrate_change=0, reward=0, save=False):
         qtable_key = self.get_qtable_key(board, source, target, action, classes=False)
@@ -67,13 +70,13 @@ class AlphaDice:
         dqtable_key = [y for x in dqtable_key for y in x] # Flatten the list
 
         # Add our additional DQN stats to state
-        additional_stats = [self.stats.rounds_without_move, target.get_dice(), self.stats.nb_players, self.stats.dice_per_area]#, winrate_change, self.stats.biggest_region_size, self.stats.area_share, self.stats.dice_share] 
+        additional_stats = []#self.stats.rounds_without_move, target.get_dice(), self.stats.nb_players, self.stats.dice_per_area, self.stats.biggest_region_size, self.stats.area_share, self.stats.dice_share] 
         
         dqtable_key = dqtable_key + additional_stats
         assert(len(dqtable_key) == NB_FEATURES_DQN) # Check if the stat count is correct 
 
         if save:
-            self.save_dqtable_key(dqtable_key)
+            self.save_dqtable_key(dqtable_key, winrate_change)
         
         return dqtable_key
 
@@ -151,7 +154,8 @@ class AlphaDice:
 
     def simulate_game(self, board):
         name_backup = self.player_name
-        self.update_qtable = False
+        update_qtable_tmp = self.update_qtable # We need to copy it so we can set it the same way at the end
+        self.update_qtable = False # Make sure learning is off
         self.ongoing_simulation = True
         ai_order = self.players_order.index(name_backup) # Position of our AI in player order list
         
@@ -167,7 +171,7 @@ class AlphaDice:
         self.simulate_enemy_turns(board, self.players_order[:ai_order]) 
 
         self.player_name = name_backup
-        self.update_qtable = True
+        self.update_qtable = update_qtable_tmp # Revert to previous state
         self.ongoing_simulation = False
 
         return board, new_dice
@@ -218,19 +222,10 @@ class AlphaDice:
             area_count = len(board.get_player_areas(self.player_name)) 
             region_size = len(max(board.get_players_regions(self.player_name), key=len))
             hidden_regions = hidden_region_count(board, self.player_name)
-            #print("Region: " + str(region_size) + " -> " + str(new_dice))
-            #print("Area: " + str(area_count) + " -> " + str(new_area_size))
             reward = (new_dice - region_size) * 0.25 # We compare dice count at round end to current biggest region size
             reward += (new_area_size - area_count) * 0.05 # Region size is more important
             reward += (new_hidden_regions - hidden_regions) * 0.25
             reward = calculate_risk_reward_bonus(turn_key, reward)
-
-            # Bellman equation for new Q-table value calculation
-            #print("Move: ")
-            #print(turn_key)
-            #print("Reward size: " + str(reward))
-            #print("Previous move value: " + str(self.q_table[turn_key]))
-            #print(f"Probability to win: before - {self.classifier(tensor(statistics_before)):0.3f}, after - {self.classifier(tensor(statistics_after)):0.3f}")
 
             # Change Q-value based on immediate winrate change effect
             probability_before = self.classifier(tensor(statistics_before)).item()
@@ -261,15 +256,15 @@ class AlphaDice:
                 else:
                     self.stats.get_game_statistics(board, on_turn=False)
 
-                winrate_change = (probability_after - probability_before) * 0.75 + (probability_with_move - probability_without_move) * 0.25
+                winrate_change = (probability_after - probability_before) * 0.9 + (probability_with_move - probability_without_move) * 0.1
                 self.get_dqtable_key(board, turn_source, turn_target, turn_action, save=True, winrate_change=winrate_change, reward=reward)
 
+            # Bellman equation for new Q-table value calculation
             self.q_table[turn_key] = self.q_table[turn_key] + self.learning_rate * (reward + self.discount * approximated_qvalue - self.q_table[turn_key])
-            self.q_table = give_reward_to_better_turns(self.q_table, reward, self.learning_rate, turn_key, 2, ["very low", "low", "medium", "high"])
-            #print("New move value: " + str(self.q_table[turn_key]))
 
             # Save the move to the list of played moves
             save_move_to_file(turn_key, self.moves_path)
+            self.save_training()
 
         if not attacks or turn_action == "defend" or not turn_source or not turn_target: # Source or target can be null when there are missing records in Q-table
             # Save various game statistics which will be used for dataset creation

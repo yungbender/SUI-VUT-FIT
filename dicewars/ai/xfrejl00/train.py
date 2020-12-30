@@ -26,13 +26,19 @@ ai_list = ["dt.ste", "dt.sdc", "dt.stei", "dt.wpm_c", "dt.wpm_d", "dt.wpm_s", "x
 ai_val = ["dt.rand", "dt.ste", "dt.sdc", "dt.wpm_c", "xlogin00"]
 SIGINT_CALLED = False
 
-REPLAY_MEMORY_MAX = 100000
-REPLAY_MEMORY_MIN = 4096
+REPLAY_MEMORY_MAX_CLASSIFIER = 100000
+REPLAY_MEMORY_MIN_CLASSIFIER = 4096
+REPLAY_MEMORY_MAX_DQN = 20000
+REPLAY_MEMORY_MIN_DQN = 256
 NB_FEATURES_CLASSIFIER = 22 # Number of classifier features
-NB_FEATURES_DQN = 11 # 6 states, board states, custom stats
-USE_DQN = False
-BATCH_SIZE = 2048
-LEARNING_RATE = 0.001
+NB_FEATURES_DQN = 7 # 6 states, board states, custom stats
+BATCH_SIZE_CLASSIFIER = 2048
+BATCH_SIZE_DQN = 128
+LEARNING_RATE_DQN = 0.0001
+LEARNING_RATE_CLASSIFIER = 0.001
+TRAIN_DQN = False
+TRAIN_CLASSIFIER = False
+TRAIN_QTABLE = False
 
 class TrainExc(Exception):
     pass
@@ -130,35 +136,37 @@ def save_snapshots(snapshot_path, q_table, df, name, save=True):
     return df
 
 def create_training_graphs(snapshot_path, losses_dqn, accuracies_dqn, losses_classifier, accuracies_classifier):
-    x = np.linspace(1, len(losses_classifier), len(losses_classifier))
-    plt.ylabel("Loss value")
-    plt.xlabel("Epochs")
-    plt.plot(x, losses_classifier, color="blue")
-    plt.legend(["Training loss"])
-    plt.savefig(snapshot_path + "classifier_losses" + ".png")
-    plt.close()
+    if TRAIN_CLASSIFIER:    
+        x = np.linspace(1, len(losses_classifier), len(losses_classifier))
+        plt.ylabel("Loss value")
+        plt.xlabel("Epochs")
+        plt.plot(x, losses_classifier, color="blue")
+        plt.legend(["Training loss"])
+        plt.savefig(snapshot_path + "classifier_losses" + ".png")
+        plt.close()
 
-    plt.xlabel("Epochs")
-    plt.ylabel("Accuracy")
-    plt.plot(x, accuracies_classifier, color="blue")
-    plt.legend(["Validation accuracy"])
-    plt.savefig(snapshot_path + "classifier_accuracy" + ".png")
-    plt.close()
+        plt.xlabel("Epochs")
+        plt.ylabel("Accuracy")
+        plt.plot(x, accuracies_classifier, color="blue")
+        plt.legend(["Validation accuracy"])
+        plt.savefig(snapshot_path + "classifier_accuracy" + ".png")
+        plt.close()
 
-    x = np.linspace(1, len(losses_dqn), len(losses_dqn))
-    plt.ylabel("Loss value")
-    plt.xlabel("Epochs")
-    plt.plot(x, losses_dqn, color="blue")
-    plt.legend(["Training loss"])
-    plt.savefig(snapshot_path + "dqn_losses" + ".png")
-    plt.close()
+    if TRAIN_DQN:
+        x = np.linspace(1, len(losses_dqn), len(losses_dqn))
+        plt.ylabel("Loss value")
+        plt.xlabel("Epochs")
+        plt.plot(x, losses_dqn, color="blue")
+        plt.legend(["Training loss"])
+        plt.savefig(snapshot_path + "dqn_losses" + ".png")
+        plt.close()
 
-    plt.xlabel("Epochs")
-    plt.ylabel("Accuracy")
-    plt.plot(x, accuracies_dqn, color="blue")
-    plt.legend(["Validation accuracy"])
-    plt.savefig(snapshot_path + "dqn_accuracy" + ".png")
-    plt.close()
+        plt.xlabel("Epochs")
+        plt.ylabel("Accuracy")
+        plt.plot(x, accuracies_dqn, color="blue")
+        plt.legend(["Validation accuracy"])
+        plt.savefig(snapshot_path + "dqn_accuracy" + ".png")
+        plt.close()
 
 def create_winrate_graphs(snapshot_path, data, name):
     # Create graphs
@@ -171,17 +179,30 @@ def create_winrate_graphs(snapshot_path, data, name):
     plt.savefig(snapshot_path + name + ".png")
     plt.close()
 
-def initialize_buffer(positives, negatives):
-    label_buffer = collections.deque(maxlen=REPLAY_MEMORY_MAX)
-    statistics_buffer = collections.deque(maxlen=REPLAY_MEMORY_MAX)
+def initialize_buffer_load_labels(statistics, labels, replay_max):
+    label_buffer = collections.deque(maxlen=replay_max)
+    statistics_buffer = collections.deque(maxlen=replay_max)
+
+    statistics = np.genfromtxt(statistics, dtype=float)
+    labels = np.genfromtxt(labels, dtype=float)
+
+    for stat, label in zip(statistics,labels):
+        statistics_buffer.append(stat)
+        label_buffer.append(label)
+
+    return statistics_buffer, label_buffer
+
+def initialize_buffer(positives, negatives, replay_max):
+    label_buffer = collections.deque(maxlen=replay_max)
+    statistics_buffer = collections.deque(maxlen=replay_max)
 
     with open(positives, "r") as positives_file, open(negatives, "r") as negatives_file:
         num_positives = sum(1 for line in positives_file)
         num_negatives = sum(1 for line in negatives_file)
 
     # We do this to keep the share of positives/negatives the same
-    positives_count = num_positives / (num_negatives + num_negatives) * REPLAY_MEMORY_MAX
-    negatives_count = num_negatives / (num_negatives + num_negatives) * REPLAY_MEMORY_MAX
+    positives_count = num_positives / (num_negatives + num_negatives) * replay_max
+    negatives_count = num_negatives / (num_negatives + num_negatives) * replay_max
 
     positives = np.genfromtxt(positives, skip_header=max(int(num_positives - positives_count), 0), dtype=float)
     negatives = np.genfromtxt(negatives, skip_header=max(int(num_negatives - negatives_count), 0), dtype=float)
@@ -250,16 +271,16 @@ def train(match_count=5000,
         load_model=False,
         **kwargs):
 
-    setup_config(snapshot_path)
+    setup_config(snapshot_path, train=TRAIN_QTABLE)
     print("Snapshot path: " + snapshot_path)
 
     # Initialize replay buffers
-    classifier_label_buffer = collections.deque(maxlen=REPLAY_MEMORY_MAX)
-    classifier_statistics_buffer = collections.deque(maxlen=REPLAY_MEMORY_MAX)
-    dqn_label_buffer = collections.deque(maxlen=REPLAY_MEMORY_MAX)
-    dqn_statistics_buffer = collections.deque(maxlen=REPLAY_MEMORY_MAX)
-    dqn = DQNetwork(NB_FEATURES_DQN, LEARNING_RATE)
-    classifier = Classifier(NB_FEATURES_CLASSIFIER, LEARNING_RATE)
+    classifier_label_buffer = collections.deque(maxlen=REPLAY_MEMORY_MAX_CLASSIFIER)
+    classifier_statistics_buffer = collections.deque(maxlen=REPLAY_MEMORY_MAX_CLASSIFIER)
+    dqn_label_buffer = collections.deque(maxlen=REPLAY_MEMORY_MAX_DQN)
+    dqn_statistics_buffer = collections.deque(maxlen=REPLAY_MEMORY_MAX_DQN)
+    dqn = DQNetwork(NB_FEATURES_DQN, LEARNING_RATE_DQN)
+    classifier = Classifier(NB_FEATURES_CLASSIFIER, LEARNING_RATE_CLASSIFIER)
     losses_classifier = []
     accuracies_classifier = []
     losses_dqn = []
@@ -269,13 +290,15 @@ def train(match_count=5000,
         learning_rate, epsilon, discount = load_parameters(snapshot_path)
         df = pd.read_csv(snapshot_path + "winrate_all.csv", index_col=0)
 
-        # Load classifier and DQN models
-        classifier.load_state_dict(torch.load(snapshot_path + f"classifier_model_{NB_FEATURES_CLASSIFIER}.pt"))
-        dqn.load_state_dict(torch.load(snapshot_path + f"dqn_model_{NB_FEATURES_DQN}.pt"))
+        # Load and initialize classifier
+        if TRAIN_CLASSIFIER:
+            classifier.load_state_dict(torch.load(snapshot_path + f"classifier_model_{NB_FEATURES_CLASSIFIER}.pt"))
+            classifier_statistics_buffer, classifier_label_buffer = initialize_buffer(snapshot_path + "classifier/positives.txt", snapshot_path + "classifier/negatives.txt", REPLAY_MEMORY_MAX_CLASSIFIER)
 
-        # Initialize buffers
-        dqn_statistics_buffer, dqn_label_buffer = initialize_buffer(snapshot_path + "dqn/positives.txt", snapshot_path + "dqn/negatives.txt")
-        classifier_statistics_buffer, classifier_label_buffer = initialize_buffer(snapshot_path + "classifier/positives.txt", snapshot_path + "classifier/negatives.txt")
+        # Load and initialize DQN
+        if TRAIN_DQN:
+            dqn_statistics_buffer, dqn_label_buffer = initialize_buffer_load_labels(snapshot_path + "dqn/statistics.txt", snapshot_path + "dqn/labels.txt", REPLAY_MEMORY_MAX_DQN)
+            dqn.load_state_dict(torch.load(snapshot_path + f"dqn_model_{NB_FEATURES_DQN}.pt"))
 
         start_index = len(df.iloc[:])
         if start_index == match_count:
@@ -287,7 +310,8 @@ def train(match_count=5000,
         torch.save(classifier.state_dict(), snapshot_path + f"classifier_model_{NB_FEATURES_CLASSIFIER}.pt")
         torch.save(dqn.state_dict(), snapshot_path + f"dqn_model_{NB_FEATURES_DQN}.pt")
 
-        df = pd.DataFrame(columns=["win", "rolling_avg"], dtype=int)
+        df = pd.DataFrame(columns=["win", "rolling_avg, rolling_avg_2000"], dtype=int)
+        df.to_csv(snapshot_path + "winrate_all.csv", index=True) # Create the file
         start_index = 0
 
     progress_bar = tqdm(total=match_count, initial=start_index)
@@ -297,7 +321,7 @@ def train(match_count=5000,
         random.shuffle(opponents) # Shuffle the list
         for j in range(4):
             # Clear the statistics file from classifier and raw DQN labels file
-            with open(snapshot_path + "classifier/statistics.txt", "w"), open(snapshot_path + "dqn/statistics_raw.txt", "w"):
+            with open(snapshot_path + "classifier/statistics.txt", "w"), open(snapshot_path + "dqn/statistics_raw.txt", "w"), open(snapshot_path + "dqn/labels_raw.txt", "w"):
                 pass 
             
             # Run and analyze the game
@@ -329,23 +353,13 @@ def train(match_count=5000,
                         print("Game cancelled because the AI decided not to play.")
 
             # Move the moves from game to correct dataset files 
-            with open(snapshot_path + "classifier/statistics.txt", "r") as stats_classifier, open(snapshot_path + "dqn/statistics_raw.txt", "r") as raw_statistics_dqn:
+            with open(snapshot_path + "classifier/statistics.txt", "r") as stats_classifier, open(snapshot_path + "dqn/statistics_raw.txt", "r") as raw_statistics_dqn, open(snapshot_path + "dqn/labels_raw.txt", "r") as raw_labels_dqn:
                 if won_game:
                     with open(snapshot_path + "classifier/positives.txt", "a+") as dataset_classifier:
                         for line in stats_classifier:
                             dataset_classifier.write(line)
                             classifier_statistics_buffer.append(np.fromstring(line, sep=" ", dtype=float))
                             classifier_label_buffer.append(1)
-
-                    with open(snapshot_path + "dqn/positives.txt", "a+") as positives_dqn:
-                        for line in raw_statistics_dqn:
-                            #line = line.split() # Convert to list
-                            #line[-1] = str(float(line[-1]) + bonus) # Add after-game bonus to reward
-                            #line = " ".join(line) # Convert back to string
-                            #positives_dqn.write(line + "\n")
-                            positives_dqn.write(line)
-                            dqn_statistics_buffer.append(np.fromstring(line, sep=" ", dtype=float))
-                            dqn_label_buffer.append(1)
                 else:
                     with open(snapshot_path + "classifier/negatives.txt", "a+") as dataset_classifier:
                         for line in stats_classifier:
@@ -353,15 +367,12 @@ def train(match_count=5000,
                             classifier_statistics_buffer.append(np.fromstring(line, sep=" ", dtype=float))
                             classifier_label_buffer.append(0)
 
-                    with open(snapshot_path + "dqn/negatives.txt", "a+") as negatives_dqn:
-                        for line in raw_statistics_dqn:
-                            #line = line.split() # Convert to list
-                            #line[-1] = str(float(line[-1]) + bonus) # Add after-game bonus to reward
-                            #line = " ".join(line) # Convert back to string
-                            #negatives_dqn.write(line + "\n")
-                            negatives_dqn.write(line)
-                            dqn_statistics_buffer.append(np.fromstring(line, sep=" ", dtype=float))
-                            dqn_label_buffer.append(0)
+                with open(snapshot_path + "dqn/statistics.txt", "a+") as dqn_data, open(snapshot_path + "dqn/labels.txt", "a+") as dqn_labels:
+                    for stat, label in zip(raw_statistics_dqn, raw_labels_dqn):
+                        dqn_data.write(stat)
+                        dqn_labels.write(label)
+                        dqn_statistics_buffer.append(np.fromstring(stat, sep=" ", dtype=float))
+                        dqn_label_buffer.append(np.fromstring(label, sep=" ", dtype=float))
             
             # Buffer lengths MUST match
             assert(len(dqn_label_buffer) == len(dqn_statistics_buffer))
@@ -370,27 +381,28 @@ def train(match_count=5000,
             if (i + j) % save_frequency == 0 and i > 0:
                 for _ in range(save_frequency):
                     # Train DQN
-                    loss_epoch = 0
-                    if len(dqn_label_buffer) > REPLAY_MEMORY_MIN and len(dqn_statistics_buffer) > REPLAY_MEMORY_MIN:
-                        for x, t in dqn.batch_provider(np.array(dqn_statistics_buffer, dtype=float), np.array(dqn_label_buffer, dtype=float), BATCH_SIZE):
-                            loss_epoch += dqn.training_step(x, t)
-                        
-                        losses_dqn.append(loss_epoch / (int(len(dqn_statistics_buffer) / BATCH_SIZE)))
-                        accuracies_dqn.append(dqn.evaluate(np.array(dqn_statistics_buffer, dtype=float), np.array(dqn_label_buffer, dtype=float)))
+                    if TRAIN_DQN:
+                        loss_epoch = 0
+                        if len(dqn_label_buffer) > REPLAY_MEMORY_MIN_DQN and len(dqn_statistics_buffer) > REPLAY_MEMORY_MIN_DQN:
+                            for x, t in dqn.batch_provider(np.array(dqn_statistics_buffer, dtype=float), np.array(dqn_label_buffer, dtype=float), BATCH_SIZE_DQN):
+                                loss_epoch += dqn.training_step(x, t)
+                            
+                            losses_dqn.append(loss_epoch / (int(len(dqn_statistics_buffer) / BATCH_SIZE_DQN)))
+                            accuracies_dqn.append(dqn.evaluate(np.array(dqn_statistics_buffer, dtype=float), np.array(dqn_label_buffer, dtype=float)))
+                    dqn_save = copy.deepcopy(dqn)
+                    torch.save(dqn_save.state_dict(), snapshot_path + f"dqn_model_{NB_FEATURES_DQN}.pt")
 
                     # Train classifier
-                    loss_epoch = 0
-                    if len(classifier_statistics_buffer) > REPLAY_MEMORY_MIN and len(classifier_label_buffer) > REPLAY_MEMORY_MIN:
-                        for x, t in classifier.batch_provider(np.array(classifier_statistics_buffer, dtype=float), np.array(classifier_label_buffer, dtype=float), BATCH_SIZE):
-                            loss_epoch += classifier.training_step(x, t)
-                        
-                        losses_classifier.append(loss_epoch / (int(len(classifier_statistics_buffer) / BATCH_SIZE)))
-                        accuracies_classifier.append(classifier.evaluate(np.array(classifier_statistics_buffer, dtype=float), np.array(classifier_label_buffer, dtype=float)))
-
-                classifier_save = copy.deepcopy(classifier) 
-                torch.save(classifier_save.state_dict(), snapshot_path + f"classifier_model_{NB_FEATURES_CLASSIFIER}.pt")
-                dqn_save = copy.deepcopy(dqn)
-                torch.save(dqn_save.state_dict(), snapshot_path + f"dqn_model_{NB_FEATURES_DQN}.pt")
+                    if TRAIN_CLASSIFIER:
+                        loss_epoch = 0
+                        if len(classifier_statistics_buffer) > REPLAY_MEMORY_MIN_CLASSIFIER and len(classifier_label_buffer) > REPLAY_MEMORY_MIN_CLASSIFIER:
+                            for x, t in classifier.batch_provider(np.array(classifier_statistics_buffer, dtype=float), np.array(classifier_label_buffer, dtype=float), BATCH_SIZE_CLASSIFIER):
+                                loss_epoch += classifier.training_step(x, t)
+                            
+                            losses_classifier.append(loss_epoch / (int(len(classifier_statistics_buffer) / BATCH_SIZE_CLASSIFIER)))
+                            accuracies_classifier.append(classifier.evaluate(np.array(classifier_statistics_buffer, dtype=float), np.array(classifier_label_buffer, dtype=float)))
+                        classifier_save = copy.deepcopy(classifier) 
+                        torch.save(classifier_save.state_dict(), snapshot_path + f"classifier_model_{NB_FEATURES_CLASSIFIER}.pt")
 
             # Add the game info to pandas dataframe
             df = df.append({"win" : won_game}, ignore_index=True)

@@ -1,5 +1,5 @@
 from torch import from_numpy, squeeze, float32, set_default_dtype, tensor, load, save
-from torch.nn import Linear, parameter, LeakyReLU, Sigmoid, Module, BCELoss, Dropout, BatchNorm1d
+from torch.nn import Linear, parameter, LeakyReLU, Sigmoid, Module, SmoothL1Loss, Dropout, BatchNorm1d, Tanh, Softmax, MSELoss
 from torch.optim import Adam
 import numpy as np
 import copy
@@ -7,11 +7,9 @@ import argparse
 import pickle
 
 class Dataset:
-    def __init__(self, positives, negatives, cols):
-        self.pos = np.loadtxt(positives, usecols=cols, dtype=float)
-        self.neg = np.loadtxt(negatives, usecols=cols, dtype=float)
-        self.xs = np.concatenate((self.pos, self.neg))
-        self.targets = np.concatenate((np.ones((len(self.pos), )), np.zeros((len(self.neg), ))))
+    def __init__(self, data, labels, cols):
+        self.xs = np.loadtxt(data, usecols=cols, dtype=float)
+        self.targets = np.loadtxt(labels, dtype=float)
 
 class LogisticRegressionMultiFeature(Module):
     def __init__(self, nb_features, lr=0):
@@ -19,22 +17,17 @@ class LogisticRegressionMultiFeature(Module):
         self.max_accuracy = parameter.Parameter(tensor(0.0))
         self.output_size = 1
         self.nb_features = nb_features
-        self.linear = Linear(self.nb_features, 64)
-        self.linear2 = Linear(64, 64)
-        self.linear3 = Linear(64, 1)
+        self.linear = Linear(self.nb_features, 1)
+        self.linear2 = Linear(16, 16)
+        self.linear3 = Linear(16, 1)
         self.leakyrelu = LeakyReLU()
-        self.sigmoid = Sigmoid()
-        self.criterion = BCELoss()
+        self.tanh = Tanh()
+        self.criterion = MSELoss()
         self.optimizer = Adam(self.parameters(), lr=lr, weight_decay=0.001)
     
     def forward(self, x):
         x = self.linear(x)
-        x = self.leakyrelu(x)
-        x = self.linear2(x)
-        x = self.leakyrelu(x)
-        x = Dropout(0.2)(x)
-        x = self.linear3(x)
-        x = self.sigmoid(x)
+        x = self.tanh(x)
         return squeeze(x)
     
     def prob_class_1(self, x):
@@ -51,7 +44,7 @@ class LogisticRegressionMultiFeature(Module):
     def training_step(self, x, t):
         self.optimizer.zero_grad()
         model_output = self(x)
-        loss = self.criterion(model_output, t) # Compare model output with targets
+        loss = self.criterion(model_output, squeeze(t)) # Compare model output with targets
         current_loss = loss.detach().item()
         loss.backward()
         self.optimizer.step()
@@ -88,6 +81,7 @@ def train_model(nb_features, nb_epochs, lr, batch_size, train_dataset, val_datas
         print(f"Epoch {epoch}/{nb_epochs}: loss - {avg_loss:0.4f}, validation accuracy: {accuracy:0.4f}")
         accuracies.append(accuracy)
         losses.append(avg_loss)
+
     return best_model, losses, accuracies
 
 def train():
@@ -96,12 +90,12 @@ def train():
     args = parser.parse_args()
 
     max_epochs = 500
-    nb_features = 10 # 5 states, reward, winrate prediction, board states, custom stats
-    learning_rate = 0.001
-    batch_size = 16
+    nb_features = 7 # 5 states, reward, winrate prediction, board states, custom stats
+    learning_rate = 0.0001
+    batch_size = 1
 
-    train_dataset = Dataset("dicewars/ai/xfrejl00/positives_dqn.trn", "dicewars/ai/xfrejl00/negatives_dqn.trn", cols=np.arange(0, nb_features)) 
-    val_dataset = Dataset("dicewars/ai/xfrejl00/positives_dqn.val", "dicewars/ai/xfrejl00/negatives_dqn.val", cols=np.arange(0, nb_features))
+    train_dataset = Dataset("dicewars/ai/xfrejl00/dqn_data.trn", "dicewars/ai/xfrejl00/dqn_labels.trn", cols=np.arange(0, nb_features)) 
+    val_dataset = Dataset("dicewars/ai/xfrejl00/dqn_data.val", "dicewars/ai/xfrejl00/dqn_labels.val", cols=np.arange(0, nb_features))
 
     model_multi_fea, losses, accuracies = train_model(nb_features, max_epochs, learning_rate, batch_size, train_dataset, val_dataset, args.load_model)
     print(f"Best model accuracy: {model_multi_fea.max_accuracy.double():0.4f}")
